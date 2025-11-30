@@ -3,9 +3,9 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.0.0" />
-    <PackageVersion Include="Aspire.Hosting.SqlServer" Version="13.0.0" />
-    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.0.0" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.0.1" />
+    <PackageVersion Include="Aspire.Hosting.SqlServer" Version="13.0.1" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.0.1" />
     <PackageVersion Include="Aspire.Hosting.Azure.CosmosDB" Version="13.0.0" />
     <PackageVersion Include="Aspire.Microsoft.Azure.Cosmos" Version="13.0.0" />
     <PackageVersion Include="Azure.Core" Version="1.47.1" />
@@ -59,7 +59,7 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
     <PackageVersion Include="Microsoft.OData.Edm" Version="8.4.3" />
     <PackageVersion Include="Microsoft.OData.Core" Version="8.4.3" />
-    <PackageVersion Include="Microsoft.OpenApi" Version="3.0.1" />
+    <PackageVersion Include="Microsoft.OpenApi" Version="1.6.28" />
     <PackageVersion Include="Microsoft.OpenApi.Readers" Version="1.6.28" />
     <PackageVersion Include="Moq" Version="4.20.72" />
     <PackageVersion Include="MSTest.TestAdapter" Version="4.0.2" />
@@ -81,7 +81,7 @@
     <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.15.0" />
     <PackageVersion Include="System.IO.Abstractions" Version="22.1.0" />
     <PackageVersion Include="System.IO.Abstractions.TestingHelpers" Version="22.1.0" />
-    <PackageVersion Include="Verify.MsTest" Version="31.7.2" />
+    <PackageVersion Include="Verify.MsTest" Version="31.7.3" />
     <PackageVersion Include="Verify.DiffPlex" Version="3.1.2" />
     <PackageVersion Include="ZiggyCreatures.FusionCache" Version="2.4.0" />
     <PackageVersion Include="ZiggyCreatures.FusionCache.Serialization.SystemTextJson" Version="2.4.0" />

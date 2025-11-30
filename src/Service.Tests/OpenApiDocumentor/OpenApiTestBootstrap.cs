@@ -11,6 +11,7 @@ using Azure.DataApiBuilder.Config;
 using Azure.DataApiBuilder.Config.ObjectModel;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.OpenApi;
+using Microsoft.OpenApi.Models;
 using Microsoft.OpenApi.Readers;
 
 namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration

@@ -133,7 +133,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Authentication
 
             Assert.AreEqual(expected: (int)HttpStatusCode.Unauthorized, actual: postMiddlewareContext.Response.StatusCode);
             Assert.IsNotNull(postMiddlewareContext.User.Identity);
-            Assert.AreEqual(expected: false, actual: postMiddlewareContext.User.Identity.IsAuthenticated);
+            Assert.IsFalse(postMiddlewareContext.User.Identity.IsAuthenticated);
         }
 
         /// <summary>
@@ -211,8 +211,8 @@ namespace Azure.DataApiBuilder.Service.Tests.Authentication
 
             Assert.IsNotNull(postMiddlewareContext.User.Identity);
             Assert.IsTrue(postMiddlewareContext.User.Identity.IsAuthenticated);
-            Assert.AreEqual(expected: true, actual: postMiddlewareContext.User.HasClaim(type: objectIdClaimType, value: objectId));
-            Assert.AreEqual(expected: true, actual: postMiddlewareContext.User.HasClaim(type: tenantIdClaimType, value: tenantId));
+            Assert.IsTrue(postMiddlewareContext.User.HasClaim(type: objectIdClaimType, value: objectId));
+            Assert.IsTrue(postMiddlewareContext.User.HasClaim(type: tenantIdClaimType, value: tenantId));
             Assert.AreEqual(expected: (int)HttpStatusCode.OK, actual: postMiddlewareContext.Response.StatusCode);
         }
 

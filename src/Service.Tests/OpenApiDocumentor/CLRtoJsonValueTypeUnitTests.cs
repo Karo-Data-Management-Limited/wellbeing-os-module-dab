@@ -89,7 +89,6 @@ public class CLRtoJsonValueTypeUnitTests
     [DataRow(typeof(sbyte?))]
     [DataRow(typeof(short?))]
     [DataRow(typeof(ushort?))]
-    [DataRow(typeof(int?))]
     [DataRow(typeof(uint?))]
     [DataRow(typeof(long?))]
     [DataRow(typeof(ulong?))]

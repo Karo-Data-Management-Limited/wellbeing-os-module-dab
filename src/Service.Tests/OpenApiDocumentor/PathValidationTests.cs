@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Azure.DataApiBuilder.Config.ObjectModel;
 using Microsoft.OpenApi;
+using Microsoft.OpenApi.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration
@@ -68,7 +69,7 @@ namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration
             // 2. GetAll path:  "/customEntityPath"
             foreach (string actualPath in openApiDocument.Paths.Keys)
             {
-                Assert.AreEqual(expected: true, actual: actualPath.StartsWith(expectedOpenApiPath), message: PATH_GENERATION_ERROR + actualPath);
+                Assert.IsTrue(actualPath.StartsWith(expectedOpenApiPath), message: PATH_GENERATION_ERROR + actualPath);
             }
         }
     }

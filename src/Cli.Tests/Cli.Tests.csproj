@@ -6,10 +6,8 @@
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
         <OutputPath>$(BaseOutputPath)\tests</OutputPath>
-        <NoWarn>NU1603</NoWarn>
-    </PropertyGroup>
-
-    <ItemGroup>
+        <NoWarn>NU1603;MSTEST0001;MSTEST0014;MSTEST0023;MSTEST0032;MSTEST0036;MSTEST0037;MSTEST0040;MSTEST0052;MSTEST0056</NoWarn>
+    </PropertyGroup>    <ItemGroup>
         <PackageReference Include="coverlet.collector">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

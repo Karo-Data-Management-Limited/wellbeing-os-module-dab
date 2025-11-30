@@ -680,7 +680,7 @@ type Moon {
         /// But if invalid config is provided during startup, ApplicationException is thrown
         /// and application exits.
         /// </summary>
-        [TestMethod]
+        [TestMethod(DisplayName = "Validates that queries before runtime is configured returns a 503 in hosting scenario whereas an application exception when run through CLI")]
         [DataRow(new string[] { }, true, DisplayName = "No config returns 503 - config file flag absent")]
         [DataRow(new string[] { "--ConfigFileName=" }, true, DisplayName = "No config returns 503 - empty config file option")]
         [DataRow(new string[] { }, false, DisplayName = "Throws Application exception")]
@@ -719,14 +719,16 @@ type Moon {
         /// Verify that https redirection is disabled when --no-https-redirect flag is passed  through CLI.
         /// We check if IsHttpsRedirectionDisabled is set to true with --no-https-redirect flag.
         /// </summary>
-        [TestMethod]
+        [TestMethod(DisplayName = "Validates that https redirection is disabled when --no-https-redirect option is used when engine is started through CLI")]
         [DataRow(new string[] { "" }, false, DisplayName = "Https redirection allowed")]
         [DataRow(new string[] { StartupConfiguration.NO_HTTPS_REDIRECT_FLAG }, true, DisplayName = "Http redirection disabled")]
         public void TestDisablingHttpsRedirection(
             string[] args,
             bool expectedIsHttpsRedirectionDisabled)
         {
-            Program.CreateHostBuilder(args).Build();
+#pragma warning disable ASPDEPR008 // IWebHostBuilder.Build() is obsolete but still needed for test infrastructure
+            Program.CreateWebHostBuilder(args).Build();
+#pragma warning restore ASPDEPR008
             Assert.AreEqual(expectedIsHttpsRedirectionDisabled, Program.IsHttpsRedirectionDisabled);
         }
 
@@ -841,10 +843,7 @@ type Moon {
                 replacementSettings: new(doReplaceEnvVar: true));
 
             // Assert
-            Assert.AreEqual(
-                expected: true,
-                actual: configParsed,
-                message: "Runtime config unexpectedly failed parsing.");
+            Assert.IsTrue(configParsed, message: "Runtime config unexpectedly failed parsing.");
             Assert.AreEqual(
                 expected: expectedDabModifiedConnString,
                 actual: updatedRuntimeConfig.DataSource.ConnectionString,
@@ -894,10 +893,7 @@ type Moon {
                 replacementSettings: new(doReplaceEnvVar: true));
 
             // Assert
-            Assert.AreEqual(
-                expected: true,
-                actual: configParsed,
-                message: "Runtime config unexpectedly failed parsing.");
+            Assert.IsTrue(configParsed, message: "Runtime config unexpectedly failed parsing.");
             Assert.AreEqual(
                 expected: expectedDabModifiedConnString,
                 actual: updatedRuntimeConfig.DataSource.ConnectionString,
@@ -959,10 +955,7 @@ type Moon {
                 replacementSettings: new(doReplaceEnvVar: true));
 
             // Assert
-            Assert.AreEqual(
-                expected: true,
-                actual: configParsed,
-                message: "Runtime config unexpectedly failed parsing.");
+            Assert.IsTrue(configParsed, message: "Runtime config unexpectedly failed parsing.");
             Assert.AreEqual(
                 expected: expectedDabModifiedConnString,
                 actual: updatedRuntimeConfig.DataSource.ConnectionString,
@@ -1913,11 +1906,7 @@ type Moon {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
             FileSystem fileSystem = new();
             FileSystemRuntimeConfigLoader loader = new(fileSystem);
-            RuntimeConfig config = loader.LoadKnownConfigAsync()
-                .ConfigureAwait(false)
-                .GetAwaiter()
-                .GetResult()
-                ?? throw new AssertFailedException("Failed to load runtime configuration for test setup.");
+            loader.TryLoadKnownConfig(out RuntimeConfig config);
 
             string customProperty = @"
                 {
@@ -2072,7 +2061,7 @@ type Moon {
         /// has highest precedence irrespective of what the connection string is in the config file.
         /// Verifying the Exception thrown.
         /// </summary>
-        [TestMethod(DisplayName = $"Validates that environment variable {RUNTIME_ENV_CONNECTION_STRING} has highest precedence."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod($"Validates that environment variable {RUNTIME_ENV_CONNECTION_STRING} has highest precedence."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         public void TestConnectionStringEnvVarHasHighestPrecedence()
         {
             Environment.SetEnvironmentVariable(ASP_NET_CORE_ENVIRONMENT_VAR_NAME, COSMOS_ENVIRONMENT);
@@ -2161,11 +2150,7 @@ type Moon {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
             FileSystem fileSystem = new();
             FileSystemRuntimeConfigLoader loader = new(fileSystem);
-            RuntimeConfig config = loader.LoadKnownConfigAsync()
-                .ConfigureAwait(false)
-                .GetAwaiter()
-                .GetResult()
-                ?? throw new AssertFailedException("Failed to load runtime configuration for test setup.");
+            loader.TryLoadKnownConfig(out RuntimeConfig config);
 
             RuntimeConfig configWithCustomHostMode = config with
             {
@@ -3491,11 +3476,10 @@ type Moon {
             // Read the base config from the file system
             TestHelper.SetupDatabaseEnvironment(TestCategory.COSMOSDBNOSQL);
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            RuntimeConfig baseConfig = baseLoader.LoadKnownConfigAsync()
-                .ConfigureAwait(false)
-                .GetAwaiter()
-                .GetResult()
-                ?? throw new ApplicationException("Failed to load the default CosmosDB_NoSQL config and cannot continue with tests.");
+            if (!baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig))
+            {
+                throw new ApplicationException("Failed to load the default CosmosDB_NoSQL config and cannot continue with tests.");
+            }
 
             // Setup a mock file system, and use that one with the loader/provider for the config
             MockFileSystem fileSystem = new(new Dictionary<string, MockFileData>()
@@ -3536,11 +3520,10 @@ type Planet @model(name:""PlanetAlias"") {
             // Read the base config from the file system
             TestHelper.SetupDatabaseEnvironment(TestCategory.COSMOSDBNOSQL);
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            RuntimeConfig baseConfig = baseLoader.LoadKnownConfigAsync()
-                .ConfigureAwait(false)
-                .GetAwaiter()
-                .GetResult()
-                ?? throw new ApplicationException("Failed to load the default CosmosDB_NoSQL config and cannot continue with tests.");
+            if (!baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig))
+            {
+                throw new ApplicationException("Failed to load the default CosmosDB_NoSQL config and cannot continue with tests.");
+            }
 
             Dictionary<string, Entity> entities = new(baseConfig.Entities);
             entities.Remove("Character");
@@ -3831,7 +3814,7 @@ type Planet @model(name:""PlanetAlias"") {
 
                     // Validate that Swagger requests OpenAPI document using REST path defined in runtime config.
                     string actualBody = await followUpResponse.Content.ReadAsStringAsync();
-                    Assert.IsTrue(actualBody.Contains(expectedOpenApiTargetContent));
+                    Assert.Contains(expectedOpenApiTargetContent, actualBody);
                 }
             }
         }
@@ -3916,11 +3899,11 @@ type Planet @model(name:""PlanetAlias"") {
                 //Validate log-level property exists in runtime
                 JsonElement telemetryElement = runtimeElement.GetProperty("telemetry");
                 bool logLevelPropertyExists = telemetryElement.TryGetProperty("log-level", out JsonElement logLevelElement);
-                Assert.AreEqual(expected: true, actual: logLevelPropertyExists);
+                Assert.IsTrue(logLevelPropertyExists);
 
                 //Validate the dictionary inside the log-level property is of expected value
                 bool dictionaryLogLevelExists = logLevelElement.TryGetProperty("default", out JsonElement levelElement);
-                Assert.AreEqual(expected: true, actual: dictionaryLogLevelExists);
+                Assert.IsTrue(dictionaryLogLevelExists);
                 Assert.AreEqual(expectedLevel.ToString().ToLower(), levelElement.GetString());
             }
         }
@@ -4090,11 +4073,7 @@ type Planet @model(name:""PlanetAlias"") {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
 
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            RuntimeConfig baseConfig = baseLoader.LoadKnownConfigAsync()
-                .ConfigureAwait(false)
-                .GetAwaiter()
-                .GetResult()
-                ?? throw new AssertFailedException("Failed to load runtime configuration for log level validation.");
+            baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig);
 
             RuntimeConfig config = new(
                 Schema: baseConfig.Schema,
@@ -4158,7 +4137,7 @@ type Planet @model(name:""PlanetAlias"") {
                 //Validate azure-log-analytics property exists in runtime
                 JsonElement telemetryElement = runtimeElement.GetProperty("telemetry");
                 bool azureLogAnalyticsPropertyExists = telemetryElement.TryGetProperty("azure-log-analytics", out JsonElement azureLogAnalyticsElement);
-                Assert.AreEqual(expected: true, actual: azureLogAnalyticsPropertyExists);
+                Assert.IsTrue(azureLogAnalyticsPropertyExists);
 
                 //Validate the values inside the azure-log-analytics properties are of expected value
                 bool enabledExists = azureLogAnalyticsElement.TryGetProperty("enabled", out JsonElement enabledElement);
@@ -4258,7 +4237,7 @@ type Planet @model(name:""PlanetAlias"") {
                 // Validate file property exists in runtime
                 JsonElement telemetryElement = runtimeElement.GetProperty("telemetry");
                 bool filePropertyExists = telemetryElement.TryGetProperty("file", out JsonElement fileElement);
-                Assert.AreEqual(expected: true, actual: filePropertyExists);
+                Assert.IsTrue(filePropertyExists);
 
                 // Validate the values inside the file properties are of expected value
                 bool enabledExists = fileElement.TryGetProperty("enabled", out JsonElement enabledElement);
@@ -4308,11 +4287,7 @@ type Planet @model(name:""PlanetAlias"") {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
 
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            RuntimeConfig baseConfig = baseLoader.LoadKnownConfigAsync()
-                .ConfigureAwait(false)
-                .GetAwaiter()
-                .GetResult()
-                ?? throw new AssertFailedException("Failed to load runtime configuration for telemetry validation.");
+            baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig);
 
             RuntimeConfig config = new(
                 Schema: baseConfig.Schema,
@@ -4776,7 +4751,7 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
         ///   }
         /// </summary>
         /// <param name="depthLimit">The maximum allowed depth for GraphQL queries and mutations.</param>
-        /// <param name="HttpMethod">Indicates whether the operation is a mutation or a query.</param>
+        /// <param name="operationType">Indicates whether the operation is a mutation or a query.</param>
         /// <param name="expectedStatusCodeForGraphQL">The expected HTTP status code for the operation.</param>
         [TestMethod]
         [DataRow(1, GraphQLOperation.Query, HttpStatusCode.BadRequest, DisplayName = "Failed Query execution when max depth limit is set to 1")]
@@ -4786,7 +4761,7 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
         [TestCategory(TestCategory.MSSQL)]
         public async Task TestDepthLimitRestrictionOnGraphQLInNonHostedMode(
             int depthLimit,
-            GraphQLOperation HttpMethod,
+            GraphQLOperation operationType,
             HttpStatusCode expectedStatusCodeForGraphQL)
         {
             // Arrange
@@ -4809,7 +4784,7 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
             using (HttpClient client = server.CreateClient())
             {
                 string query;
-                if (HttpMethod is GraphQLOperation.Mutation)
+                if (operationType is GraphQLOperation.Mutation)
                 {
                     // requested mutation operation has depth of 2
                     query = @"mutation createbook{

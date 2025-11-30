@@ -43,19 +43,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ASPIRE_DATABASE_TYPE: mssql
         run: |
-          aspire build --project src/Aspire.AppHost/Aspire.AppHost.csproj
+          aspire do build-wellbeing-os-data-api --log-level debug
 
       - name: Tag built image as latest
         run: |
-          # Find the mssql-service image that was just built and tag it
-          IMAGE_WITH_HASH=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "mssql-service" | head -n 1)
-          if [ -z "$IMAGE_WITH_HASH" ]; then
-            echo "Error: Could not find mssql-service image"
-            docker images
-            exit 1
-          fi
-          docker tag $IMAGE_WITH_HASH wellbeing-os-data-api:latest
-          echo "Tagged $IMAGE_WITH_HASH as wellbeing-os-data-api:latest"
+          docker tag wellbeing-os-data-api:latest wellbeing-os-data-api:latest
+          echo "Image wellbeing-os-data-api:latest ready for push"
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3

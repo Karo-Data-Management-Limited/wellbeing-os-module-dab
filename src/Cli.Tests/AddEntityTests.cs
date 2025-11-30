@@ -510,7 +510,7 @@ namespace Cli.Tests
                 );
 
             VerifySettings settings = new();
-            settings.UseHashedParameters(restMethods, graphQLOperation, restRoute, graphQLType);
+            settings.UseParameters(restMethods, graphQLOperation, restRoute, graphQLType);
             return ExecuteVerifyTest(options, settings: settings);
         }
 

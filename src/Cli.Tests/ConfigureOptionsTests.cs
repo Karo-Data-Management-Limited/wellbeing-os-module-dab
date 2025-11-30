@@ -76,7 +76,7 @@ namespace Cli.Tests
             }
             else
             {
-                Assert.IsTrue(!updatedConfig.Contains("depth-limit"));
+                Assert.DoesNotContain("depth-limit", updatedConfig);
             }
 
             // Assert that INITIAL_CONFIG is same as the updated config

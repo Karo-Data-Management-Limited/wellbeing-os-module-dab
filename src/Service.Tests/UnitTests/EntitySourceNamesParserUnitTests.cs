@@ -68,7 +68,6 @@ namespace Azure.DataApiBuilder.Service.Tests.UnitTests
         [DataRow(".")]
         [DataRow("]]")]
         [DataRow("].")]
-        [DataRow(".")]
         [DataRow(".].].].].]")]
         [DataRow("[[]]]]]]]][")]
         [DataRow("a].[abc]")]
