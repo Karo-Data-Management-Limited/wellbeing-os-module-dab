@@ -54,16 +54,17 @@ namespace Azure.DataApiBuilder.Service.Tests.CosmosTests
         [DataRow("CosmosTests/TestData/CosmosData/MultiItems", "CosmosTests/TestData/GeneratedGqlSchema", true)]
         public void TestSchemaGeneratorUsingMultipleJson(string jsonFilePath, string gqlFilePath, bool useConfigFilePath)
         {
-            RuntimeConfig baseConfig = null;
+          RuntimeConfig baseConfig = null;
             string gqlFileName = "MultiItems.gql";
             if (useConfigFilePath)
             {
                 TestHelper.SetupDatabaseEnvironment(TestCategory.COSMOSDBNOSQL);
                 FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-                if (!baseLoader.TryLoadKnownConfig(out baseConfig))
-                {
-                    throw new ApplicationException("Failed to load the default CosmosDB_NoSQL config and cannot continue with tests.");
-                }
+            baseConfig = baseLoader.LoadKnownConfigAsync()
+              .ConfigureAwait(false)
+              .GetAwaiter()
+              .GetResult()
+              ?? throw new ApplicationException("Failed to load the default CosmosDB_NoSQL config and cannot continue with tests.");
 
                 gqlFileName = "MultiItemsWithConfig.gql";
             }

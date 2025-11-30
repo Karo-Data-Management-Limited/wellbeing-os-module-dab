@@ -3,11 +3,12 @@
 
 using System;
 using System.CommandLine;
-using System.CommandLine.Parsing;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Azure.DataApiBuilder.Config;
+using Azure.DataApiBuilder.Service;
 using Azure.DataApiBuilder.Service.Exceptions;
 using Azure.DataApiBuilder.Service.Telemetry;
 using Microsoft.ApplicationInsights;
@@ -25,79 +26,105 @@ using Serilog;
 using Serilog.Core;
 using Serilog.Extensions.Logging;
 
-namespace Azure.DataApiBuilder.Service
+// Program class for methods and entry point
+public partial class Program
 {
-    public class Program
+    public static bool IsHttpsRedirectionDisabled { get; private set; }
+
+    /// <summary>
+    /// Application entry point.
+    /// </summary>
+    /// <param name="args">Command line arguments.</param>
+    /// <returns>Exit code: 0 for success, -1 for failure.</returns>
+    public static int Main(string[] args)
     {
-        public static bool IsHttpsRedirectionDisabled { get; private set; }
-
-        public static void Main(string[] args)
+        if (!ValidateAspNetCoreUrls())
         {
-            if (!ValidateAspNetCoreUrls())
-            {
-                Console.Error.WriteLine("Invalid ASPNETCORE_URLS format. e.g.: ASPNETCORE_URLS=\"http://localhost:5000;https://localhost:5001\"");
-                Environment.ExitCode = -1;
-                return;
-            }
-
-            if (!StartEngine(args))
-            {
-                Environment.ExitCode = -1;
-            }
+            Console.Error.WriteLine("Invalid ASPNETCORE_URLS format. e.g.: ASPNETCORE_URLS=\"http://localhost:5000;https://localhost:5001\"");
+            Environment.ExitCode = -1;
+            return -1;
         }
 
-        public static bool StartEngine(string[] args)
+        if (!StartEngine(args))
         {
-            // Unable to use ILogger because this code is invoked before LoggerFactory
-            // is instantiated.
-            Console.WriteLine("Starting the runtime engine...");
-            try
-            {
-                CreateHostBuilder(args).Build().Run();
-                return true;
-            }
-            // Catch exception raised by explicit call to IHostApplicationLifetime.StopApplication()
-            catch (TaskCanceledException)
-            {
-                // Do not log the exception here because exceptions raised during startup
-                // are already automatically written to the console.
-                Console.Error.WriteLine("Unable to launch the Data API builder engine.");
-                return false;
-            }
-            // Catch all remaining unhandled exceptions which may be due to server host operation.
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"Unable to launch the runtime due to: {ex}");
-                return false;
-            }
+            Environment.ExitCode = -1;
+            return -1;
         }
 
-        public static IHostBuilder CreateHostBuilder(string[] args)
-        {
-            return Host.CreateDefaultBuilder(args)
-                .ConfigureAppConfiguration(builder =>
-                {
-                    AddConfigurationProviders(builder, args);
-                })
-                .ConfigureWebHostDefaults(webBuilder =>
-                {
-                    Startup.MinimumLogLevel = GetLogLevelFromCommandLineArgs(args, out Startup.IsLogLevelOverriddenByCli);
-                    ILoggerFactory loggerFactory = GetLoggerFactoryForLogLevel(Startup.MinimumLogLevel);
-                    ILogger<Startup> startupLogger = loggerFactory.CreateLogger<Startup>();
-                    DisableHttpsRedirectionIfNeeded(args);
-                    webBuilder.UseStartup(builder => new Startup(builder.Configuration, startupLogger));
-                });
-        }
+        return 0;
+    }
 
-        /// <summary>
-        /// Using System.CommandLine Parser to parse args and return
-        /// the correct log level. We save if there is a log level in args through
-        /// the out param. For log level out of range we throw an exception.
-        /// </summary>
-        /// <param name="args">array that may contain log level information.</param>
-        /// <param name="isLogLevelOverridenByCli">sets if log level is found in the args.</param>
-        /// <returns>Appropriate log level.</returns>
-        private static LogLevel GetLogLevelFromCommandLineArgs(string[] args, out bool isLogLevelOverridenByCli)
+    public static bool StartEngine(string[] args)
+    {
+        // Unable to use ILogger because this code is invoked before LoggerFactory
+        // is instantiated.
+        Console.WriteLine("Starting the runtime engine...");
+        try
+        {
+            WebApplicationBuilder builder = CreateWebApplicationBuilder(args);
+            WebApplication app = builder.Build();
+            app.ConfigurePipeline();
+            app.Run();
+            return true;
+        }
+        // Catch exception raised by explicit call to IHostApplicationLifetime.StopApplication()
+        catch (TaskCanceledException)
+        {
+            // Do not log the exception here because exceptions raised during startup
+            // are already automatically written to the console.
+            Console.Error.WriteLine("Unable to launch the Data API builder engine.");
+            return false;
+        }
+        // Catch all remaining unhandled exceptions which may be due to server host operation.
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Unable to launch the runtime due to: {ex}");
+            return false;
+        }
+    }
+
+    public static WebApplicationBuilder CreateWebApplicationBuilder(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
+        
+        AddConfigurationProviders(builder.Configuration, args);
+        StartupConfiguration.MinimumLogLevel = GetLogLevelFromCommandLineArgs(args, out StartupConfiguration.IsLogLevelOverriddenByCli);
+        DisableHttpsRedirectionIfNeeded(args);
+        
+        builder.ConfigureServices();
+        
+        return builder;
+    }
+
+    // Backward compatibility: Keep CreateHostBuilder for tests
+    public static IHostBuilder CreateHostBuilder(string[] args)
+    {
+        return Host.CreateDefaultBuilder(args)
+            .ConfigureAppConfiguration(builder =>
+            {
+                AddConfigurationProviders(builder, args);
+            })
+            .ConfigureWebHostDefaults(webBuilder =>
+            {
+                StartupConfiguration.MinimumLogLevel = GetLogLevelFromCommandLineArgs(args, out StartupConfiguration.IsLogLevelOverriddenByCli);
+                ILoggerFactory loggerFactory = GetLoggerFactoryForLogLevel(StartupConfiguration.MinimumLogLevel);
+                #pragma warning disable CS0618 // Type or member is obsolete
+                ILogger<Startup> startupLogger = loggerFactory.CreateLogger<Startup>();
+                DisableHttpsRedirectionIfNeeded(args);
+                webBuilder.UseStartup(builder => new Startup(builder.Configuration, startupLogger));
+                #pragma warning restore CS0618
+            });
+    }
+
+    /// <summary>
+    /// Using System.CommandLine Parser to parse args and return
+    /// the correct log level. We save if there is a log level in args through
+    /// the out param. For log level out of range we throw an exception.
+    /// </summary>
+    /// <param name="args">array that may contain log level information.</param>
+    /// <param name="isLogLevelOverridenByCli">sets if log level is found in the args.</param>
+    /// <returns>Appropriate log level.</returns>
+    internal static LogLevel GetLogLevelFromCommandLineArgs(string[] args, out bool isLogLevelOverridenByCli)
         {
             RootCommand cmd = new("start");
             Option<LogLevel> logLevelOption = new("--LogLevel");
@@ -118,7 +145,6 @@ namespace Azure.DataApiBuilder.Service
 
             return logLevel;
         }
-
 
 
         /// <summary>
@@ -150,14 +176,14 @@ namespace Azure.DataApiBuilder.Service
                     }
 
                     // For Sending all the ILogger logs to Application Insights
-                    if (Startup.AppInsightsOptions.Enabled && !string.IsNullOrWhiteSpace(Startup.AppInsightsOptions.ConnectionString))
+                    if (StartupConfiguration.AppInsightsOptions.Enabled && !string.IsNullOrWhiteSpace(StartupConfiguration.AppInsightsOptions.ConnectionString))
                     {
                         builder.AddApplicationInsights(configureTelemetryConfiguration: (config) =>
                             {
-                                config.ConnectionString = Startup.AppInsightsOptions.ConnectionString;
-                                if (Startup.CustomTelemetryChannel is not null)
+                                config.ConnectionString = StartupConfiguration.AppInsightsOptions.ConnectionString;
+                                if (StartupConfiguration.CustomTelemetryChannel is not null)
                                 {
-                                    config.TelemetryChannel = Startup.CustomTelemetryChannel;
+                                    config.TelemetryChannel = StartupConfiguration.CustomTelemetryChannel;
                                 }
                             },
                             configureApplicationInsightsLoggerOptions: _ => { }
@@ -173,25 +199,25 @@ namespace Azure.DataApiBuilder.Service
                         }
                     }
 
-                    if (Startup.OpenTelemetryOptions.Enabled && !string.IsNullOrWhiteSpace(Startup.OpenTelemetryOptions.Endpoint))
+                    if (StartupConfiguration.OpenTelemetryOptions.Enabled && !string.IsNullOrWhiteSpace(StartupConfiguration.OpenTelemetryOptions.Endpoint))
                     {
                         builder.AddOpenTelemetry(logging =>
                         {
                             logging.IncludeFormattedMessage = true;
                             logging.IncludeScopes = true;
-                            logging.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(Startup.OpenTelemetryOptions.ServiceName!));
+                            logging.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(StartupConfiguration.OpenTelemetryOptions.ServiceName!));
                             logging.AddOtlpExporter(configure =>
                             {
-                                configure.Endpoint = new Uri(Startup.OpenTelemetryOptions.Endpoint);
-                                configure.Headers = Startup.OpenTelemetryOptions.Headers;
+                                configure.Endpoint = new Uri(StartupConfiguration.OpenTelemetryOptions.Endpoint);
+                                configure.Headers = StartupConfiguration.OpenTelemetryOptions.Headers;
                                 configure.Protocol = OtlpExportProtocol.Grpc;
                             });
                         });
                     }
 
-                    if (Startup.IsAzureLogAnalyticsAvailable(Startup.AzureLogAnalyticsOptions))
+                    if (StartupConfiguration.IsAzureLogAnalyticsAvailable(StartupConfiguration.AzureLogAnalyticsOptions))
                     {
-                        builder.AddProvider(new AzureLogAnalyticsLoggerProvider(Startup.CustomLogCollector));
+                        builder.AddProvider(new AzureLogAnalyticsLoggerProvider(StartupConfiguration.CustomLogCollector));
 
                         if (logLevelInitializer is null)
                         {
@@ -203,7 +229,7 @@ namespace Azure.DataApiBuilder.Service
                         }
                     }
 
-                    if (Startup.FileSinkOptions.Enabled && serilogLogger is not null)
+                    if (StartupConfiguration.FileSinkOptions.Enabled && serilogLogger is not null)
                     {
                         builder.AddSerilog(serilogLogger);
 
@@ -230,7 +256,7 @@ namespace Azure.DataApiBuilder.Service
         private static void DisableHttpsRedirectionIfNeeded(string[] args)
         {
             RootCommand cmd = new("start");
-            Option<string> httpsRedirectFlagOption = new(Startup.NO_HTTPS_REDIRECT_FLAG);
+            Option<string> httpsRedirectFlagOption = new(StartupConfiguration.NO_HTTPS_REDIRECT_FLAG);
             cmd.Add(httpsRedirectFlagOption);
             ParseResult result = cmd.Parse(args);
             if (result.Tokens.Count - result.UnmatchedTokens.Count > 0)
@@ -246,6 +272,7 @@ namespace Azure.DataApiBuilder.Service
         // This is used for testing purposes only. The test web server takes in a
         // IWebHostBuilder, instead of a IHostBuilder.
 #pragma warning disable ASPDEPR008 // WebHost is obsolete but still needed for test infrastructure
+#pragma warning disable CS0618 // Startup is obsolete but still needed for test infrastructure
         public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
             WebHost
                 .CreateDefaultBuilder(args)
@@ -261,27 +288,28 @@ namespace Azure.DataApiBuilder.Service
         public static IWebHostBuilder CreateWebHostFromInMemoryUpdatableConfBuilder(string[] args) =>
             WebHost.CreateDefaultBuilder(args)
             .UseStartup<Startup>();
+#pragma warning restore CS0618
 #pragma warning restore ASPDEPR008
 
-        /// <summary>
-        /// Adds the various configuration providers.
-        /// </summary>
-        /// <param name="configurationBuilder">The configuration builder.</param>
-        /// <param name="args">The command line arguments.</param>
-        private static void AddConfigurationProviders(
-            IConfigurationBuilder configurationBuilder,
-            string[] args)
+    /// <summary>
+    /// Adds the various configuration providers.
+    /// </summary>
+    /// <param name="configurationBuilder">The configuration builder.</param>
+    /// <param name="args">The command line arguments.</param>
+    internal static void AddConfigurationProviders(
+        IConfigurationBuilder configurationBuilder,
+        string[] args)
         {
             configurationBuilder
                 .AddEnvironmentVariables(prefix: FileSystemRuntimeConfigLoader.ENVIRONMENT_PREFIX)
                 .AddCommandLine(args);
         }
 
-        /// <summary>
-        /// Validates the URLs specified in the ASPNETCORE_URLS environment variable.
-        /// Ensures that each URL is valid and properly formatted.
-        /// </summary>
-        internal static bool ValidateAspNetCoreUrls()
+    /// <summary>
+    /// Validates the URLs specified in the ASPNETCORE_URLS environment variable.
+    /// Ensures that each URL is valid and properly formatted.
+    /// </summary>
+    internal static bool ValidateAspNetCoreUrls()
         {
             if (Environment.GetEnvironmentVariable("ASPNETCORE_URLS") is not { } urls)
             {
@@ -327,26 +355,25 @@ namespace Azure.DataApiBuilder.Service
                 Regex.Replace(url, @"^(https?://)[\+\*]", "$1localhost", RegexOptions.IgnoreCase);
         }
 
-        public static bool CheckSanityOfUrl(string uri)
+    public static bool CheckSanityOfUrl(string uri)
+    {
+        if (!Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsedUri))
         {
-            if (!Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsedUri))
-            {
-                return false;
-            }
-
-            // Only allow HTTP or HTTPS schemes
-            if (parsedUri.Scheme != Uri.UriSchemeHttp && parsedUri.Scheme != Uri.UriSchemeHttps)
-            {
-                return false;
-            }
-
-            // Disallow empty hostnames
-            if (string.IsNullOrWhiteSpace(parsedUri.Host))
-            {
-                return false;
-            }
-
-            return true;
+            return false;
         }
+
+        // Only allow HTTP or HTTPS schemes
+        if (parsedUri.Scheme != Uri.UriSchemeHttp && parsedUri.Scheme != Uri.UriSchemeHttps)
+        {
+            return false;
+        }
+
+        // Disallow empty hostnames
+        if (string.IsNullOrWhiteSpace(parsedUri.Host))
+        {
+            return false;
+        }
+
+        return true;
     }
 }

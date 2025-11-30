@@ -195,7 +195,7 @@ namespace Azure.DataApiBuilder.Service.Tests.GraphQLBuilder
             foreach ((string relationshipName, EntityRelationship relationship) in entity.Relationships)
             {
                 // Assert that the input type for the entity contains a field for the relationship.
-                Assert.Contains(relationshipName, inputFieldNames);
+                Assert.IsTrue(inputFieldNames.Contains(relationshipName));
 
                 int indexOfRelationshipField = inputFields.FindIndex(field => field.Name.Value.Equals(relationshipName));
                 InputValueDefinitionNode inputValueDefinitionNode = inputFields[indexOfRelationshipField];
@@ -275,12 +275,12 @@ namespace Azure.DataApiBuilder.Service.Tests.GraphQLBuilder
             // Assert that all the fields from the target input definition are present in the source->target linking input definition.
             foreach (InputValueDefinitionNode targetInputValueField in targetInputObjectTypeDefinitionNode.Fields)
             {
-                Assert.Contains(targetInputValueField.Name.Value, inputFieldNamesInSourceTargetLinkingInput);
+                Assert.IsTrue(inputFieldNamesInSourceTargetLinkingInput.Contains(targetInputValueField.Name.Value));
             }
 
             // Assert that the fields ('royalty_percentage') from linking object (i.e. book_author_link) is also
             // present in the input fields for the source>target linking input definition.
-            Assert.Contains(linkingObjectFieldName, inputFieldNamesInSourceTargetLinkingInput);
+            Assert.IsTrue(inputFieldNamesInSourceTargetLinkingInput.Contains(linkingObjectFieldName));
         }
 
         /// <summary>

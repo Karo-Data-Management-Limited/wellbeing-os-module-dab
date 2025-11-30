@@ -382,7 +382,7 @@ namespace Azure.DataApiBuilder.Service.Tests.UnitTests
                     string projectNameString = typeNameSplitParts[1].Trim();
                     Assert.AreEqual("Azure.DataApiBuilder.Config", projectNameString);
 
-                    Assert.HasCount(2, typeNameSplitParts);
+                    Assert.AreEqual(2, typeNameSplitParts.Length);
                 }
                 else
                 {

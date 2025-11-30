@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Azure.DataApiBuilder.Config;
 using Azure.DataApiBuilder.Config.DatabasePrimitives;
@@ -92,7 +93,9 @@ namespace Azure.DataApiBuilder.Service.Tests.UnitTests
             Mock<IMutationEngineFactory> mutationEngineFactory = new();
 
             Mock<RuntimeConfigLoader> mockLoader = new(null, null);
-            mockLoader.Setup(x => x.TryLoadKnownConfig(out mockConfig1, It.IsAny<bool>())).Returns(true);
+            mockLoader
+                .Setup(x => x.LoadKnownConfigAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(mockConfig1);
 
             RuntimeConfigProvider provider = new(mockLoader.Object);
 
@@ -161,7 +164,9 @@ namespace Azure.DataApiBuilder.Service.Tests.UnitTests
             Mock<IMutationEngineFactory> mutationEngineFactory = new();
 
             Mock<RuntimeConfigLoader> mockLoader = new(null, null);
-            mockLoader.Setup(x => x.TryLoadKnownConfig(out mockConfig1, It.IsAny<bool>())).Returns(true);
+            mockLoader
+                .Setup(x => x.LoadKnownConfigAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(mockConfig1);
 
             RuntimeConfigProvider provider = new(mockLoader.Object);
 
@@ -261,7 +266,9 @@ namespace Azure.DataApiBuilder.Service.Tests.UnitTests
                );
 
             Mock<RuntimeConfigLoader> mockLoader = new(null, null);
-            mockLoader.Setup(x => x.TryLoadKnownConfig(out mockConfig, It.IsAny<bool>())).Returns(true);
+            mockLoader
+                .Setup(x => x.LoadKnownConfigAsync(It.IsAny<bool>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(mockConfig);
             mockLoader.Object.RuntimeConfig = mockConfig;
 
             RuntimeConfigProvider provider = new(mockLoader.Object);

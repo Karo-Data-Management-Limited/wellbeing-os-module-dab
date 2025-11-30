@@ -721,7 +721,7 @@ type Moon {
         /// </summary>
         [TestMethod(DisplayName = "Validates that https redirection is disabled when --no-https-redirect option is used when engine is started through CLI")]
         [DataRow(new string[] { "" }, false, DisplayName = "Https redirection allowed")]
-        [DataRow(new string[] { Startup.NO_HTTPS_REDIRECT_FLAG }, true, DisplayName = "Http redirection disabled")]
+        [DataRow(new string[] { StartupConfiguration.NO_HTTPS_REDIRECT_FLAG }, true, DisplayName = "Http redirection disabled")]
         public void TestDisablingHttpsRedirection(
             string[] args,
             bool expectedIsHttpsRedirectionDisabled)
@@ -843,7 +843,10 @@ type Moon {
                 replacementSettings: new(doReplaceEnvVar: true));
 
             // Assert
-            Assert.IsTrue(configParsed, message: "Runtime config unexpectedly failed parsing.");
+            Assert.AreEqual(
+                expected: true,
+                actual: configParsed,
+                message: "Runtime config unexpectedly failed parsing.");
             Assert.AreEqual(
                 expected: expectedDabModifiedConnString,
                 actual: updatedRuntimeConfig.DataSource.ConnectionString,
@@ -893,7 +896,10 @@ type Moon {
                 replacementSettings: new(doReplaceEnvVar: true));
 
             // Assert
-            Assert.IsTrue(configParsed, message: "Runtime config unexpectedly failed parsing.");
+            Assert.AreEqual(
+                expected: true,
+                actual: configParsed,
+                message: "Runtime config unexpectedly failed parsing.");
             Assert.AreEqual(
                 expected: expectedDabModifiedConnString,
                 actual: updatedRuntimeConfig.DataSource.ConnectionString,
@@ -955,7 +961,10 @@ type Moon {
                 replacementSettings: new(doReplaceEnvVar: true));
 
             // Assert
-            Assert.IsTrue(configParsed, message: "Runtime config unexpectedly failed parsing.");
+            Assert.AreEqual(
+                expected: true,
+                actual: configParsed,
+                message: "Runtime config unexpectedly failed parsing.");
             Assert.AreEqual(
                 expected: expectedDabModifiedConnString,
                 actual: updatedRuntimeConfig.DataSource.ConnectionString,
@@ -1906,7 +1915,7 @@ type Moon {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
             FileSystem fileSystem = new();
             FileSystemRuntimeConfigLoader loader = new(fileSystem);
-            loader.TryLoadKnownConfig(out RuntimeConfig config);
+            loader.TryLoadConfig(loader.ConfigFilePath, out RuntimeConfig config);
 
             string customProperty = @"
                 {
@@ -2150,7 +2159,7 @@ type Moon {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
             FileSystem fileSystem = new();
             FileSystemRuntimeConfigLoader loader = new(fileSystem);
-            loader.TryLoadKnownConfig(out RuntimeConfig config);
+            loader.TryLoadConfig(loader.ConfigFilePath, out RuntimeConfig config);
 
             RuntimeConfig configWithCustomHostMode = config with
             {
@@ -3476,7 +3485,7 @@ type Moon {
             // Read the base config from the file system
             TestHelper.SetupDatabaseEnvironment(TestCategory.COSMOSDBNOSQL);
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            if (!baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig))
+            if (!baseLoader.TryLoadConfig(baseLoader.ConfigFilePath, out RuntimeConfig baseConfig))
             {
                 throw new ApplicationException("Failed to load the default CosmosDB_NoSQL config and cannot continue with tests.");
             }
@@ -3520,7 +3529,7 @@ type Planet @model(name:""PlanetAlias"") {
             // Read the base config from the file system
             TestHelper.SetupDatabaseEnvironment(TestCategory.COSMOSDBNOSQL);
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            if (!baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig))
+            if (!baseLoader.TryLoadConfig(baseLoader.ConfigFilePath, out RuntimeConfig baseConfig))
             {
                 throw new ApplicationException("Failed to load the default CosmosDB_NoSQL config and cannot continue with tests.");
             }
@@ -3899,11 +3908,11 @@ type Planet @model(name:""PlanetAlias"") {
                 //Validate log-level property exists in runtime
                 JsonElement telemetryElement = runtimeElement.GetProperty("telemetry");
                 bool logLevelPropertyExists = telemetryElement.TryGetProperty("log-level", out JsonElement logLevelElement);
-                Assert.IsTrue(logLevelPropertyExists);
+                Assert.AreEqual(expected: true, actual: logLevelPropertyExists);
 
                 //Validate the dictionary inside the log-level property is of expected value
                 bool dictionaryLogLevelExists = logLevelElement.TryGetProperty("default", out JsonElement levelElement);
-                Assert.IsTrue(dictionaryLogLevelExists);
+                Assert.AreEqual(expected: true, actual: dictionaryLogLevelExists);
                 Assert.AreEqual(expectedLevel.ToString().ToLower(), levelElement.GetString());
             }
         }
@@ -4012,7 +4021,7 @@ type Planet @model(name:""PlanetAlias"") {
         public void PriorityLogLevelFilters(LogLevel highPriLevel, string highPriFilter, LogLevel lowPriLevel, string lowPriFilter, Type type)
         {
             string classString = type.FullName;
-            Startup.AddValidFilters();
+            StartupConfiguration.AddValidFilters();
             Dictionary<string, LogLevel?> logLevelOptions = new();
             logLevelOptions.Add(highPriFilter, highPriLevel);
             logLevelOptions.Add(lowPriFilter, lowPriLevel);
@@ -4073,7 +4082,7 @@ type Planet @model(name:""PlanetAlias"") {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
 
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig);
+            baseLoader.TryLoadConfig(baseLoader.ConfigFilePath, out RuntimeConfig baseConfig);
 
             RuntimeConfig config = new(
                 Schema: baseConfig.Schema,
@@ -4137,7 +4146,7 @@ type Planet @model(name:""PlanetAlias"") {
                 //Validate azure-log-analytics property exists in runtime
                 JsonElement telemetryElement = runtimeElement.GetProperty("telemetry");
                 bool azureLogAnalyticsPropertyExists = telemetryElement.TryGetProperty("azure-log-analytics", out JsonElement azureLogAnalyticsElement);
-                Assert.IsTrue(azureLogAnalyticsPropertyExists);
+                Assert.AreEqual(expected: true, actual: azureLogAnalyticsPropertyExists);
 
                 //Validate the values inside the azure-log-analytics properties are of expected value
                 bool enabledExists = azureLogAnalyticsElement.TryGetProperty("enabled", out JsonElement enabledElement);
@@ -4237,7 +4246,7 @@ type Planet @model(name:""PlanetAlias"") {
                 // Validate file property exists in runtime
                 JsonElement telemetryElement = runtimeElement.GetProperty("telemetry");
                 bool filePropertyExists = telemetryElement.TryGetProperty("file", out JsonElement fileElement);
-                Assert.IsTrue(filePropertyExists);
+                Assert.AreEqual(expected: true, actual: filePropertyExists);
 
                 // Validate the values inside the file properties are of expected value
                 bool enabledExists = fileElement.TryGetProperty("enabled", out JsonElement enabledElement);
@@ -4287,7 +4296,7 @@ type Planet @model(name:""PlanetAlias"") {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
 
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig);
+            baseLoader.TryLoadConfig(baseLoader.ConfigFilePath, out RuntimeConfig baseConfig);
 
             RuntimeConfig config = new(
                 Schema: baseConfig.Schema,

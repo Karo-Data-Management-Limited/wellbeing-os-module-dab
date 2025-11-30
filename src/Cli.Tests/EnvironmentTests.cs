@@ -57,9 +57,9 @@ public class EnvironmentTests
 
         // removing Environment variable from the System
         Environment.SetEnvironmentVariable(TEST_ENV_VARIABLE, null);
-        DataApiBuilderException exception = Assert.Throws<DataApiBuilderException>(() =>
-            JsonSerializer.Deserialize<TestObject>(jsonWithEnvVariable, _options));
-        Assert.Contains($"Environmental Variable, {TEST_ENV_VARIABLE}, not found.", exception.Message);
+        Assert.Throws<DataApiBuilderException>(() =>
+            JsonSerializer.Deserialize<TestObject>(jsonWithEnvVariable, _options),
+            $"Environmental Variable, {TEST_ENV_VARIABLE}, not found.");
     }
 
     /// <summary>

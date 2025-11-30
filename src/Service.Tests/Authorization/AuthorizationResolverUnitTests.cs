@@ -1205,8 +1205,8 @@ namespace Azure.DataApiBuilder.Service.Tests.Authorization
 
             // Assert that only the role claim corresponding to clientRoleHeader is added to the claims dictionary.
             // Assert
-            Assert.IsTrue(resolvedClaims.ContainsKey(AuthenticationOptions.ROLE_CLAIM_TYPE), message: "Only the claim, roles, should be present.");
-            Assert.HasCount(1, resolvedClaims[AuthenticationOptions.ROLE_CLAIM_TYPE], message: "Only one claim should be present to represent the client role header context.");
+            Assert.AreEqual(true, resolvedClaims.ContainsKey(AuthenticationOptions.ROLE_CLAIM_TYPE), message: "Only the claim, roles, should be present.");
+            Assert.AreEqual(1, resolvedClaims[AuthenticationOptions.ROLE_CLAIM_TYPE].Count, message: "Only one claim should be present to represent the client role header context.");
             Assert.AreEqual(TEST_ROLE, resolvedClaims[AuthenticationOptions.ROLE_CLAIM_TYPE].First().Value, message: "The roles claim should have the value:" + TEST_ROLE);
         }
 
@@ -1371,10 +1371,10 @@ namespace Azure.DataApiBuilder.Service.Tests.Authorization
             Assert.AreEqual(expected: "openid", actual: resolvedClaims["scp"], message: "Unexpected scp claim returned.");
 
             bool didResolveUnauthenticatedRoleClaim = resolvedClaims[AuthenticationOptions.ROLE_CLAIM_TYPE] == "Don't_Parse_This_Role";
-            Assert.IsFalse(didResolveUnauthenticatedRoleClaim, message: "Unauthenticated roles claim erroneously resolved.");
+            Assert.AreEqual(expected: false, actual: didResolveUnauthenticatedRoleClaim, message: "Unauthenticated roles claim erroneously resolved.");
 
             bool didResolveUnauthenticatedOidClaim = resolvedClaims["oid"] == "1337";
-            Assert.IsFalse(didResolveUnauthenticatedRoleClaim, message: "Unauthenticated oid claim erroneously resolved.");
+            Assert.AreEqual(expected: false, actual: didResolveUnauthenticatedRoleClaim, message: "Unauthenticated oid claim erroneously resolved.");
         }
         #endregion
 

@@ -268,14 +268,10 @@ public class ValidateConfigTests
 
         // Assert
         string loggerOutput = writer.ToString();
-        Assert.DoesNotContain(
-            "Failed to validate config against schema due to",
-            loggerOutput,
-            "Unexpected errors encountered when validating config schema in RuntimeConfigValidator::ValidateConfigSchema(...).");
-        Assert.Contains(
-            "The config satisfies the schema requirements.",
-            loggerOutput,
-            "RuntimeConfigValidator::ValidateConfigSchema(...) didn't communicate successful config schema validation.");
+        Assert.DoesNotContain("Failed to validate config against schema due to", loggerOutput,
+            message: "Unexpected errors encountered when validating config schema in RuntimeConfigValidator::ValidateConfigSchema(...).");
+        Assert.Contains("The config satisfies the schema requirements.", loggerOutput,
+            message: "RuntimeConfigValidator::ValidateConfigSchema(...) didn't communicate successful config schema validation.");
     }
 
     /// <summary>
@@ -342,7 +338,7 @@ public class ValidateConfigTests
     {
         _fileSystem!.AddFile(TEST_RUNTIME_CONFIG_FILE, new MockFileData(INITIAL_CONFIG));
         Assert.IsTrue(_fileSystem!.File.Exists(TEST_RUNTIME_CONFIG_FILE));
-        Mock<RuntimeConfigProvider> mockRuntimeConfigProvider = new(new object[] { _runtimeConfigLoader! });
+        Mock<RuntimeConfigProvider> mockRuntimeConfigProvider = new(_runtimeConfigLoader!);
         RuntimeConfigValidator validator = new(mockRuntimeConfigProvider.Object, _fileSystem, new Mock<ILogger<RuntimeConfigValidator>>().Object);
 
         Mock<ILoggerFactory> mockLoggerFactory = new();

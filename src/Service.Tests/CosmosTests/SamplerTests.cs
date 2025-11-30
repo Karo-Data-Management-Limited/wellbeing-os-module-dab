@@ -194,7 +194,7 @@ namespace Azure.DataApiBuilder.Service.Tests.CosmosTests
         /// <param name="expectedResultCount">The expected number of records returned by the sampler.</param>
         /// <remarks>
         /// This test case ensures that the <c>TimePartitionedSampler</c> accurately handles various configurations for time-based sampling. 
-        /// It verifies the sampler’s ability to manage different group counts and record limits, as well as its handling of optional day-based filtering. 
+        /// It verifies the samplerâ€™s ability to manage different group counts and record limits, as well as its handling of optional day-based filtering. 
         /// The test cases also include scenarios where records are not evenly distributed across time-based groups.
         /// </remarks>
         [TestMethod(DisplayName = "TimePartitionedSampler Scenarios")]

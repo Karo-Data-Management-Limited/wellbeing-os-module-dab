@@ -43,7 +43,7 @@ namespace Azure.DataApiBuilder.Service.Tests.UnitTests
                 InsertRequestContext context = new(entityName: string.Empty,
                                                     dbo: _defaultDbObject,
                                                     insertPayloadRoot: payload,
-                                                    operationType: EntityActionOperation.Insert);
+                                                    HttpMethod: EntityActionOperation.Insert);
                 Assert.Fail();
             }
             catch (DataApiBuilderException e)
@@ -68,7 +68,7 @@ namespace Azure.DataApiBuilder.Service.Tests.UnitTests
             InsertRequestContext context = new(entityName: string.Empty,
                                                 dbo: _defaultDbObject,
                                                 insertPayloadRoot: payload,
-                                                operationType: EntityActionOperation.Insert);
+                                                HttpMethod: EntityActionOperation.Insert);
             Assert.IsEmpty(context.FieldValuePairsInBody);
         }
     }
