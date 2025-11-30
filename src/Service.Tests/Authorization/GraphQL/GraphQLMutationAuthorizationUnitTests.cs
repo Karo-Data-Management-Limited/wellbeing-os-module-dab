@@ -29,7 +29,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Authorization.GraphQL
             DisplayName = "One Role added to Authorize Directive")]
         [DataRow(EntityActionOperation.Create, new string[] { "role1", "role2" }, @"@authorize(roles: [""role1"",""role2""])",
             DisplayName = "Two Roles added to Authorize Directive")]
-        [DataTestMethod]
+        [TestMethod]
         public void AuthorizeDirectiveAddedForMutation(EntityActionOperation operationType, string[] rolesDefinedInPermissions, string expectedAuthorizeDirective)
         {
             string entityName = "Foo";
@@ -59,7 +59,7 @@ type Foo @model(name: ""Foo""){
 
             if (rolesDefinedInPermissions.Length > 0)
             {
-                Assert.IsTrue(mutationRoot.Definitions.Count() > 0);
+                Assert.IsGreaterThan(0, mutationRoot.Definitions.Count());
                 ObjectTypeDefinitionNode mutation = MutationBuilderTests.GetMutationNode(mutationRoot);
                 // Iterate over the mutations created by MutationBuilder.Build()
                 //

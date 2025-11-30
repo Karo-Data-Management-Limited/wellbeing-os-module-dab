@@ -265,7 +265,7 @@ type PhoneNumber {
             List<JsonDocument> jsonArray = new();
             jsonArray.Add(null);
 
-            Assert.ThrowsException<InvalidOperationException>(() => SchemaGenerator.Generate(jsonArray, "containerName"));
+            Assert.Throws<InvalidOperationException>(() => SchemaGenerator.Generate(jsonArray, "containerName"));
         }
 
         /// <summary>

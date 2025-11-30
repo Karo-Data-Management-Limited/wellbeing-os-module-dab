@@ -606,7 +606,7 @@ namespace Azure.DataApiBuilder.Service.Tests.SqlTests.RestApiTests.Put
         /// If the update happens successfully we know the sql injection
         /// failed.
         /// </summary>
-        [DataTestMethod]
+        [TestMethod]
         [DataRow(" UNION SELECT * FROM books/*", "UpdateSqlInjectionQuery1")]
         [DataRow("; SELECT * FROM information_schema.tables/*", "UpdateSqlInjectionQuery2")]
         [DataRow("value; SELECT * FROM v$version--", "UpdateSqlInjectionQuery3")]

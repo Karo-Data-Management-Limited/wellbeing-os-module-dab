@@ -69,7 +69,7 @@ namespace Azure.DataApiBuilder.Service.Tests.UnitTests
                                                 dbo: _defaultDbObject,
                                                 insertPayloadRoot: payload,
                                                 operationType: EntityActionOperation.Insert);
-            Assert.AreEqual(0, context.FieldValuePairsInBody.Count);
+            Assert.IsEmpty(context.FieldValuePairsInBody);
         }
     }
 }

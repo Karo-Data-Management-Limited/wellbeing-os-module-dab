@@ -219,7 +219,7 @@ namespace Azure.DataApiBuilder.Service.Tests.SqlTests.RestApiTests
         /// through the primary key route of a delete operation.
         /// </summary>
         /// <returns></returns>
-        [DataTestMethod]
+        [TestMethod]
         [DataRow("/UNION SELECT * FROM books/*",
             "Primary key column(s) provided do not match DB schema.")]
         [DataRow("/OR 1=1/*",

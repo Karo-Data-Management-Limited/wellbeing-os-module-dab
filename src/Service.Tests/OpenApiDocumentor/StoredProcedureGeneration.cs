@@ -79,7 +79,7 @@ namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration
         /// <param name="expectedParameters">Expected parameters in request body</param>
         /// <param name="expectedParametersJsonTypes">Expected parameter value types in request body.</param>
         [DataRow("sp1", new string[] { "title", "publisher_name" }, new string[] { "string", "string" }, DisplayName = "Validate request body parameters and parameter Json data types.")]
-        [DataTestMethod]
+        [TestMethod]
         public void ValidateRequestBodyContents(string entityName, string[] expectedParameters, string[] expectedParametersJsonTypes)
         {
             Dictionary<OperationType, bool> configuredOperations = ResolveConfiguredOperations(_runtimeEntities[entityName]);
@@ -112,7 +112,7 @@ namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration
         /// <param name="expectedColumns">Expected first result set columns</param>
         /// <param name="expectedColumnJsonTypes">Expected first result set column types (JSON)</param>
         [DataRow("sp1", new string[] { "id", "title", "publisher_id" }, new string[] { "number", "string", "number" }, DisplayName = "Validate response body parameters and parameter Json data types.")]
-        [DataTestMethod]
+        [TestMethod]
         public void ValidateResponseBodyContents(string entityName, string[] expectedColumns, string[] expectedColumnJsonTypes)
         {
             // With the responses, we can validate the Properties and their types
@@ -178,7 +178,7 @@ namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration
             Dictionary<string, OpenApiSchema> schemaComponentProperties = new(GetSchemaComponentProperties(expectedSchemaReferenceId));
 
             // Validate that the generated properties do not outnumber the count of expected columns.
-            Assert.AreEqual(expectedProperties.Length, schemaComponentProperties.Count, message: "The number of generated properties is not expected.");
+            Assert.HasCount(expectedProperties.Length, schemaComponentProperties, message: "The number of generated properties is not expected.");
 
             // Validate property presence and accurate property JSON type.
             // Test input expectedProperties and expectedPropertyJsonTypes are always expected to have the same length.

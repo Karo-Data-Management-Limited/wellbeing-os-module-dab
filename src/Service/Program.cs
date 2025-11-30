@@ -99,12 +99,12 @@ namespace Azure.DataApiBuilder.Service
         /// <returns>Appropriate log level.</returns>
         private static LogLevel GetLogLevelFromCommandLineArgs(string[] args, out bool isLogLevelOverridenByCli)
         {
-            Command cmd = new(name: "start");
-            Option<LogLevel> logLevelOption = new(name: "--LogLevel");
-            cmd.AddOption(logLevelOption);
-            ParseResult result = GetParseResult(cmd, args);
-            bool matchedToken = result.Tokens.Count - result.UnmatchedTokens.Count - result.UnparsedTokens.Count > 1;
-            LogLevel logLevel = matchedToken ? result.GetValueForOption(logLevelOption) : LogLevel.Error;
+            RootCommand cmd = new("start");
+            Option<LogLevel> logLevelOption = new("--LogLevel");
+            cmd.Add(logLevelOption);
+            ParseResult result = cmd.Parse(args);
+            bool matchedToken = result.Tokens.Count - result.UnmatchedTokens.Count > 1;
+            LogLevel logLevel = matchedToken ? result.GetValue(logLevelOption) : LogLevel.Error;
             isLogLevelOverridenByCli = matchedToken;
 
             if (logLevel is > LogLevel.None or < LogLevel.Trace)
@@ -119,19 +119,7 @@ namespace Azure.DataApiBuilder.Service
             return logLevel;
         }
 
-        /// <summary>
-        /// Helper function returns ParseResult for a given command and
-        /// arguments.
-        /// </summary>
-        /// <param name="cmd">The command.</param>
-        /// <param name="args">The arguments.</param>
-        /// <returns>ParsedResult</returns>
-        private static ParseResult GetParseResult(Command cmd, string[] args)
-        {
-            CommandLineConfiguration cmdConfig = new(cmd);
-            Parser parser = new(cmdConfig);
-            return parser.Parse(args);
-        }
+
 
         /// <summary>
         /// Creates a LoggerFactory and add filter with the given LogLevel.
@@ -241,11 +229,11 @@ namespace Azure.DataApiBuilder.Service
         /// <param name="args">array that may contain flag to disable https redirection.</param>
         private static void DisableHttpsRedirectionIfNeeded(string[] args)
         {
-            Command cmd = new(name: "start");
-            Option<string> httpsRedirectFlagOption = new(name: Startup.NO_HTTPS_REDIRECT_FLAG);
-            cmd.AddOption(httpsRedirectFlagOption);
-            ParseResult result = GetParseResult(cmd, args);
-            if (result.Tokens.Count - result.UnmatchedTokens.Count - result.UnparsedTokens.Count > 0)
+            RootCommand cmd = new("start");
+            Option<string> httpsRedirectFlagOption = new(Startup.NO_HTTPS_REDIRECT_FLAG);
+            cmd.Add(httpsRedirectFlagOption);
+            ParseResult result = cmd.Parse(args);
+            if (result.Tokens.Count - result.UnmatchedTokens.Count > 0)
             {
                 Console.WriteLine("Redirecting to https is disabled.");
                 IsHttpsRedirectionDisabled = true;
@@ -257,6 +245,7 @@ namespace Azure.DataApiBuilder.Service
 
         // This is used for testing purposes only. The test web server takes in a
         // IWebHostBuilder, instead of a IHostBuilder.
+#pragma warning disable ASPDEPR008 // WebHost is obsolete but still needed for test infrastructure
         public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
             WebHost
                 .CreateDefaultBuilder(args)
@@ -272,6 +261,7 @@ namespace Azure.DataApiBuilder.Service
         public static IWebHostBuilder CreateWebHostFromInMemoryUpdatableConfBuilder(string[] args) =>
             WebHost.CreateDefaultBuilder(args)
             .UseStartup<Startup>();
+#pragma warning restore ASPDEPR008
 
         /// <summary>
         /// Adds the various configuration providers.

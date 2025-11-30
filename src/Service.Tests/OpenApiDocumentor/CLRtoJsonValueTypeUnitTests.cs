@@ -41,14 +41,14 @@ public class CLRtoJsonValueTypeUnitTests
         try
         {
             Type resolvedType = TypeHelper.GetSystemTypeFromSqlDbType(sqlDataTypeLiteral);
-            Assert.AreEqual(true, isSupportedSqlDataType, STRING_PARSE_ERROR_PREFIX + $"{{{sqlDataTypeLiteral}}} " + SQLDBTYPE_RESOLUTION_ERROR);
+            Assert.IsTrue(isSupportedSqlDataType, STRING_PARSE_ERROR_PREFIX + $"{{{sqlDataTypeLiteral}}} " + SQLDBTYPE_RESOLUTION_ERROR);
 
             JsonDataType resolvedJsonType = TypeHelper.GetJsonDataTypeFromSystemType(resolvedType);
             Assert.AreEqual(isSupportedSqlDataType, resolvedJsonType != JsonDataType.Undefined, ERROR_PREFIX + $"{{{sqlDataTypeLiteral}}} " + JSONDATATYPE_RESOLUTION_ERROR);
         }
         catch (DataApiBuilderException)
         {
-            Assert.AreEqual(false, isSupportedSqlDataType, ERROR_PREFIX + $"{{{sqlDataTypeLiteral}}} " + SQLDBTYPE_UNEXPECTED_RESOLUTION_ERROR);
+            Assert.IsFalse(isSupportedSqlDataType, ERROR_PREFIX + $"{{{sqlDataTypeLiteral}}} " + SQLDBTYPE_UNEXPECTED_RESOLUTION_ERROR);
         }
     }
 
@@ -89,7 +89,6 @@ public class CLRtoJsonValueTypeUnitTests
     [DataRow(typeof(sbyte?))]
     [DataRow(typeof(short?))]
     [DataRow(typeof(ushort?))]
-    [DataRow(typeof(int?))]
     [DataRow(typeof(uint?))]
     [DataRow(typeof(long?))]
     [DataRow(typeof(ulong?))]
@@ -101,7 +100,7 @@ public class CLRtoJsonValueTypeUnitTests
     [DataRow(typeof(Guid?))]
     [DataRow(typeof(TimeOnly?))]
     [DataRow(typeof(TimeSpan?))]
-    [DataTestMethod]
+    [TestMethod]
     public void ResolveUnderlyingTypeForNullableValueType(Type nullableType)
     {
         Assert.AreNotEqual(notExpected: JsonDataType.Undefined, actual: TypeHelper.GetJsonDataTypeFromSystemType(nullableType));

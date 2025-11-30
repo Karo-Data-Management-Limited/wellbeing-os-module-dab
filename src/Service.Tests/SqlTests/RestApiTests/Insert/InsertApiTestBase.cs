@@ -315,7 +315,7 @@ namespace Azure.DataApiBuilder.Service.Tests.SqlTests.RestApiTests.Insert
         /// If the insertion happens successfully we know the sql injection
         /// failed.
         /// </summary>
-        [DataTestMethod]
+        [TestMethod]
         [DataRow(" UNION SELECT * FROM books/*", "InsertSqlInjectionQuery1")]
         [DataRow("; SELECT * FROM information_schema.tables/*", "InsertSqlInjectionQuery2")]
         [DataRow("value; SELECT * FROM v$version--", "InsertSqlInjectionQuery3")]

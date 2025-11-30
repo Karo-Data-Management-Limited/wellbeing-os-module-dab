@@ -413,7 +413,7 @@ namespace Azure.DataApiBuilder.Service.Tests.SqlTests.RestApiTests.Insert
         /// </summary>
         [DataRow("The First Publisher", "InsertOneAndReturnSingleRowWithStoredProcedureTest", true, DisplayName = "Test Single row result")]
         [DataRow("Big Company", "InsertOneAndReturnMultipleRowsWithStoredProcedureTest", false, DisplayName = "Test multiple row result")]
-        [DataTestMethod]
+        [TestMethod]
         public async Task InsertOneAndVerifyReturnedRowsWithStoredProcedureTest(
             string publisherName,
             string queryName,
