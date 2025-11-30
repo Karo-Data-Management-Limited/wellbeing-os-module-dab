@@ -50,7 +50,7 @@ public class ParameterValidationTests
             string apiPathWithParam = $"/{entityName}/id/{{id}}";
             if (pathName.Equals(apiPathWithParam))
             {
-                Assert.IsTrue(pathItem.Parameters.Count is 1);
+                Assert.AreEqual(1, pathItem.Parameters.Count);
                 OpenApiParameter pathParameter = pathItem.Parameters.First();
                 Assert.AreEqual("id", pathParameter.Name);
                 Assert.AreEqual(ParameterLocation.Path, pathParameter.In);
@@ -59,7 +59,7 @@ public class ParameterValidationTests
             else
             {
                 // Get All and POST method with path /entityName, will have no path parameters.
-                Assert.IsTrue(pathItem.Parameters.Count is 0);
+                Assert.AreEqual(0, pathItem.Parameters.Count);
             }
         }
     }

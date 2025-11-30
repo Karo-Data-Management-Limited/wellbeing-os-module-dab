@@ -843,10 +843,7 @@ type Moon {
                 replacementSettings: new(doReplaceEnvVar: true));
 
             // Assert
-            Assert.AreEqual(
-                expected: true,
-                actual: configParsed,
-                message: "Runtime config unexpectedly failed parsing.");
+            Assert.IsTrue(configParsed, message: "Runtime config unexpectedly failed parsing.");
             Assert.AreEqual(
                 expected: expectedDabModifiedConnString,
                 actual: updatedRuntimeConfig.DataSource.ConnectionString,
@@ -896,10 +893,7 @@ type Moon {
                 replacementSettings: new(doReplaceEnvVar: true));
 
             // Assert
-            Assert.AreEqual(
-                expected: true,
-                actual: configParsed,
-                message: "Runtime config unexpectedly failed parsing.");
+            Assert.IsTrue(configParsed, message: "Runtime config unexpectedly failed parsing.");
             Assert.AreEqual(
                 expected: expectedDabModifiedConnString,
                 actual: updatedRuntimeConfig.DataSource.ConnectionString,
@@ -961,10 +955,7 @@ type Moon {
                 replacementSettings: new(doReplaceEnvVar: true));
 
             // Assert
-            Assert.AreEqual(
-                expected: true,
-                actual: configParsed,
-                message: "Runtime config unexpectedly failed parsing.");
+            Assert.IsTrue(configParsed, message: "Runtime config unexpectedly failed parsing.");
             Assert.AreEqual(
                 expected: expectedDabModifiedConnString,
                 actual: updatedRuntimeConfig.DataSource.ConnectionString,
@@ -3908,11 +3899,11 @@ type Planet @model(name:""PlanetAlias"") {
                 //Validate log-level property exists in runtime
                 JsonElement telemetryElement = runtimeElement.GetProperty("telemetry");
                 bool logLevelPropertyExists = telemetryElement.TryGetProperty("log-level", out JsonElement logLevelElement);
-                Assert.AreEqual(expected: true, actual: logLevelPropertyExists);
+                Assert.IsTrue(logLevelPropertyExists);
 
                 //Validate the dictionary inside the log-level property is of expected value
                 bool dictionaryLogLevelExists = logLevelElement.TryGetProperty("default", out JsonElement levelElement);
-                Assert.AreEqual(expected: true, actual: dictionaryLogLevelExists);
+                Assert.IsTrue(dictionaryLogLevelExists);
                 Assert.AreEqual(expectedLevel.ToString().ToLower(), levelElement.GetString());
             }
         }
@@ -4146,7 +4137,7 @@ type Planet @model(name:""PlanetAlias"") {
                 //Validate azure-log-analytics property exists in runtime
                 JsonElement telemetryElement = runtimeElement.GetProperty("telemetry");
                 bool azureLogAnalyticsPropertyExists = telemetryElement.TryGetProperty("azure-log-analytics", out JsonElement azureLogAnalyticsElement);
-                Assert.AreEqual(expected: true, actual: azureLogAnalyticsPropertyExists);
+                Assert.IsTrue(azureLogAnalyticsPropertyExists);
 
                 //Validate the values inside the azure-log-analytics properties are of expected value
                 bool enabledExists = azureLogAnalyticsElement.TryGetProperty("enabled", out JsonElement enabledElement);
@@ -4246,7 +4237,7 @@ type Planet @model(name:""PlanetAlias"") {
                 // Validate file property exists in runtime
                 JsonElement telemetryElement = runtimeElement.GetProperty("telemetry");
                 bool filePropertyExists = telemetryElement.TryGetProperty("file", out JsonElement fileElement);
-                Assert.AreEqual(expected: true, actual: filePropertyExists);
+                Assert.IsTrue(filePropertyExists);
 
                 // Validate the values inside the file properties are of expected value
                 bool enabledExists = fileElement.TryGetProperty("enabled", out JsonElement enabledElement);

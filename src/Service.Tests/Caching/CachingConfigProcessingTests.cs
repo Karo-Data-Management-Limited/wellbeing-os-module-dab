@@ -250,7 +250,7 @@ public class CachingConfigProcessingTests
             // Validate global cache config in runtimeConfig.runtime section.
             JsonElement runtimeElement = root.GetProperty("runtime");
             bool cachePropertyExists = runtimeElement.TryGetProperty("cache", out JsonElement globalCacheElement);
-            Assert.AreEqual(expected: true, actual: cachePropertyExists);
+            Assert.IsTrue(cachePropertyExists);
 
             bool cacheTtlPropertyExists = globalCacheElement.TryGetProperty("ttl-seconds", out JsonElement ttl);
             Assert.IsTrue(cacheTtlPropertyExists);
@@ -260,7 +260,7 @@ public class CachingConfigProcessingTests
             JsonElement entitiesElement = root.GetProperty("entities");
             JsonElement entityElement = entitiesElement.EnumerateObject().First().Value;
             cachePropertyExists = entityElement.TryGetProperty("cache", out JsonElement entityCacheElement);
-            Assert.AreEqual(expected: true, actual: cachePropertyExists);
+            Assert.IsTrue(cachePropertyExists);
             Assert.AreEqual(expected: userDefinedTtl, actual: ttl.GetInt32());
         }
     }
@@ -295,13 +295,13 @@ public class CachingConfigProcessingTests
             // Validate global cache config in runtimeConfig.runtime section.
             JsonElement runtimeElement = root.GetProperty("runtime");
             bool cachePropertyExists = runtimeElement.TryGetProperty("cache", out JsonElement globalCacheElement);
-            Assert.AreEqual(expected: false, actual: cachePropertyExists, message: "Global cache property should not be serialized to config file.");
+            Assert.IsFalse(cachePropertyExists, message: "Global cache property should not be serialized to config file.");
 
             // Validate entity cache config in runtimeConfig.entities section.
             JsonElement entitiesElement = root.GetProperty("entities");
             JsonElement entityElement = entitiesElement.EnumerateObject().First().Value;
             cachePropertyExists = entityElement.TryGetProperty("cache", out JsonElement entityCacheElement);
-            Assert.AreEqual(expected: false, actual: cachePropertyExists, message: "Entity cache property should not be serialized to config file.");
+            Assert.IsFalse(cachePropertyExists, message: "Entity cache property should not be serialized to config file.");
         }
     }
 
@@ -333,7 +333,7 @@ public class CachingConfigProcessingTests
 
             // Validate global cache config in runtimeConfig.runtime section.
             bool cachePropertyExists = root.GetProperty("runtime").TryGetProperty("cache", out JsonElement globalCacheElement);
-            Assert.AreEqual(expected: true, actual: cachePropertyExists);
+            Assert.IsTrue(cachePropertyExists);
 
             bool globalCacheTtlPropertyExists = globalCacheElement.TryGetProperty("ttl-seconds", out JsonElement _);
             Assert.IsFalse(globalCacheTtlPropertyExists, message: "Global cache TTL property/value pair should not be serialized to config file.");
@@ -341,7 +341,7 @@ public class CachingConfigProcessingTests
             // Validate entity cache config in runtimeConfig.entities section.
             JsonElement entityElement = root.GetProperty("entities").EnumerateObject().First().Value;
             cachePropertyExists = entityElement.TryGetProperty("cache", out JsonElement entityCacheElement);
-            Assert.AreEqual(expected: true, actual: cachePropertyExists, message: "Global Cache property expected to be serialized to config file.");
+            Assert.IsTrue(cachePropertyExists, message: "Global Cache property expected to be serialized to config file.");
 
             bool entityCacheTtlPropertyExists = entityCacheElement.TryGetProperty("ttl-seconds", out JsonElement _);
             Assert.IsFalse(entityCacheTtlPropertyExists, message: "Global cache TTL property/value pair should not be serialized to config file.");

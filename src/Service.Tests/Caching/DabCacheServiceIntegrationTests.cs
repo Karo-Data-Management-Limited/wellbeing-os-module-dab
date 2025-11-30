@@ -78,7 +78,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Caching
             JsonElement? result = await dabCache.GetOrSetAsync<JsonElement?>(queryExecutor: mockQueryExecutor.Object, queryMetadata: queryMetadata, cacheEntryTtl: cacheEntryTtlInSeconds, cacheEntryLevel: cacheEntryLevel);
 
             // Assert
-            Assert.AreEqual(expected: true, actual: mockQueryExecutor.Invocations.Count is 1, message: ERROR_UNEXPECTED_INVOCATIONS);
+            Assert.AreEqual(1, mockQueryExecutor.Invocations.Count, message: ERROR_UNEXPECTED_INVOCATIONS);
 
             // Validates that the expected database response is returned by the cache service.
             Assert.AreEqual(expected: expectedDatabaseResponseJson, actual: result.ToString(), message: ERROR_UNEXPECTED_RESULT);
@@ -119,8 +119,8 @@ namespace Azure.DataApiBuilder.Service.Tests.Caching
             JsonElement? result = await dabCache.GetOrSetAsync<JsonElement?>(queryExecutor: mockQueryExecutor.Object, queryMetadata: queryMetadata, cacheEntryTtl: cacheEntryTtlInSeconds, cacheEntryLevel: cacheEntryLevel);
 
             // Assert
-            Assert.IsFalse(mockQueryExecutor.Invocations.Count is 2, message: "Expected a cache hit, but observed two cache misses.");
-            Assert.AreEqual(expected: true, actual: mockQueryExecutor.Invocations.Count is 1, message: ERROR_UNEXPECTED_INVOCATIONS);
+            Assert.AreNotEqual(2, mockQueryExecutor.Invocations.Count, message: "Expected a cache hit, but observed two cache misses.");
+            Assert.AreEqual(1, mockQueryExecutor.Invocations.Count, message: ERROR_UNEXPECTED_INVOCATIONS);
             Assert.AreEqual(expected: expectedDatabaseResponseJson, actual: result.ToString(), message: ERROR_UNEXPECTED_RESULT);
         }
 
@@ -159,9 +159,9 @@ namespace Azure.DataApiBuilder.Service.Tests.Caching
             JsonElement? result = await dabCache.GetOrSetAsync<JsonElement?>(queryExecutor: mockQueryExecutor.Object, queryMetadata: queryMetadata, cacheEntryTtl: cacheEntryTtlInSeconds, cacheEntryLevel: cacheEntryLevel);
 
             // Assert
-            Assert.IsFalse(mockQueryExecutor.Invocations.Count is 1, message: "QueryExecutor invocation count too low. A cache hit shouldn't have occurred since the entry should have expired.");
-            Assert.IsFalse(mockQueryExecutor.Invocations.Count is 3, message: "Unexpected cache misses. The cache entry was never used as the factory method was called on every cache access attempt.");
-            Assert.AreEqual(expected: true, actual: mockQueryExecutor.Invocations.Count is 2, message: ERROR_UNEXPECTED_INVOCATIONS);
+            Assert.AreNotEqual(1, mockQueryExecutor.Invocations.Count, message: "QueryExecutor invocation count too low. A cache hit shouldn't have occurred since the entry should have expired.");
+            Assert.AreNotEqual(3, mockQueryExecutor.Invocations.Count, message: "Unexpected cache misses. The cache entry was never used as the factory method was called on every cache access attempt.");
+            Assert.AreEqual(2, mockQueryExecutor.Invocations.Count, message: ERROR_UNEXPECTED_INVOCATIONS);
             Assert.AreEqual(expected: expectedDatabaseResponseJson, actual: result.ToString(), message: ERROR_UNEXPECTED_RESULT);
         }
 
@@ -196,8 +196,8 @@ namespace Azure.DataApiBuilder.Service.Tests.Caching
             JsonElement? result = await dabCache.GetOrSetAsync<JsonElement?>(queryExecutor: mockQueryExecutor.Object, queryMetadata: queryMetadata, cacheEntryTtl: cacheEntryTtlInSeconds, cacheEntryLevel: cacheEntryLevel);
 
             // Assert
-            Assert.IsFalse(mockQueryExecutor.Invocations.Count is 1, message: "Unexpected cache hit when cache entry size exceeded cache capacity.");
-            Assert.IsTrue(mockQueryExecutor.Invocations.Count is 2, message: ERROR_UNEXPECTED_INVOCATIONS);
+            Assert.AreNotEqual(1, mockQueryExecutor.Invocations.Count, message: "Unexpected cache hit when cache entry size exceeded cache capacity.");
+            Assert.AreEqual(2, mockQueryExecutor.Invocations.Count, message: ERROR_UNEXPECTED_INVOCATIONS);
             Assert.AreEqual(expected: expectedDatabaseResponseJson, actual: result.ToString(), message: ERROR_UNEXPECTED_RESULT);
         }
 
@@ -228,7 +228,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Caching
             JsonElement? result = await dabCache.GetOrSetAsync<JsonElement?>(queryExecutor: mockQueryExecutor.Object, queryMetadata: queryMetadata, cacheEntryTtl: cacheEntryTtlInSeconds, cacheEntryLevel: cacheEntryLevel);
 
             // Assert
-            Assert.AreEqual(expected: true, actual: mockQueryExecutor.Invocations.Count is 1, message: ERROR_UNEXPECTED_INVOCATIONS);
+            Assert.AreEqual(1, mockQueryExecutor.Invocations.Count, message: ERROR_UNEXPECTED_INVOCATIONS);
 
             // Get and validate the arguments passed to the mock ExecuteQueryAsync method.
             IReadOnlyList<object> actualExecuteQueryAsyncArguments = mockQueryExecutor.Invocations[0].Arguments;
@@ -305,7 +305,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Caching
             JsonArray? result = await dabCache.GetOrSetAsync<JsonArray>(executeQueryAsync: mockExecuteQuery.Object, queryMetadata: queryMetadata, cacheEntryTtl: cacheEntryTtlInSeconds, cacheEntryLevel: cacheEntryLevel);
 
             // Assert
-            Assert.AreEqual(expected: true, actual: mockExecuteQuery.Invocations.Count is 1, message: ERROR_UNEXPECTED_INVOCATIONS);
+            Assert.AreEqual(1, mockExecuteQuery.Invocations.Count, message: ERROR_UNEXPECTED_INVOCATIONS);
 
             // Validates that the expected database response is returned by the cache service.
             Assert.AreEqual(expected: expectedDatabaseResponse, actual: result, message: ERROR_UNEXPECTED_RESULT);
@@ -351,7 +351,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Caching
 
             // Assert
             Assert.IsLessThanOrEqualTo(1, mockExecuteQuery.Invocations.Count, message: "Expected a cache hit, but observed cache misses.");
-            Assert.AreEqual(expected: true, actual: mockExecuteQuery.Invocations.Count is 1, message: ERROR_UNEXPECTED_INVOCATIONS);
+            Assert.AreEqual(1, mockExecuteQuery.Invocations.Count, message: ERROR_UNEXPECTED_INVOCATIONS);
             Assert.AreEqual(expected: expectedDatabaseResponse, actual: result, message: ERROR_UNEXPECTED_RESULT);
         }
 
@@ -385,7 +385,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Caching
             JObject? result = await dabCache.GetOrSetAsync<JObject>(executeQueryAsync: mockExecuteQuery.Object, queryMetadata: queryMetadata, cacheEntryTtl: cacheEntryTtlInSeconds, cacheEntryLevel: cacheEntryLevel);
 
             // Assert
-            Assert.AreEqual(expected: true, actual: mockExecuteQuery.Invocations.Count is 1, message: ERROR_UNEXPECTED_INVOCATIONS);
+            Assert.AreEqual(1, mockExecuteQuery.Invocations.Count, message: ERROR_UNEXPECTED_INVOCATIONS);
 
             // Validates that the expected database response is returned by the cache service.
             Assert.AreEqual(expected: expectedDatabaseResponse, actual: result, message: ERROR_UNEXPECTED_RESULT);
@@ -423,7 +423,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Caching
 
             // Assert
             Assert.IsLessThanOrEqualTo(1, mockExecuteQuery.Invocations.Count, message: "Expected a cache hit, but observed cache misses.");
-            Assert.AreEqual(expected: true, actual: mockExecuteQuery.Invocations.Count is 1, message: ERROR_UNEXPECTED_INVOCATIONS);
+            Assert.AreEqual(1, mockExecuteQuery.Invocations.Count, message: ERROR_UNEXPECTED_INVOCATIONS);
             Assert.AreEqual(expected: expectedDatabaseResponse, actual: result, message: ERROR_UNEXPECTED_RESULT);
         }
 
@@ -578,9 +578,9 @@ namespace Azure.DataApiBuilder.Service.Tests.Caching
             // Validates that the expected database response is returned by the query engine and that nothing was cached.
             Assert.AreEqual(expected: value, actual: result!.RootElement.GetProperty(key).GetString());
             // Validates outer wrapper was instantiated correctly.
-            Assert.AreEqual(expected: true, actual: cachedResult.HasValue);
+            Assert.IsTrue(cachedResult.HasValue);
             // Validates no value returned from cache.
-            Assert.AreEqual(expected: false, actual: cachedResult!.Value.HasValue);
+            Assert.IsFalse(cachedResult!.Value.HasValue);
         }
 
         /// <summary>

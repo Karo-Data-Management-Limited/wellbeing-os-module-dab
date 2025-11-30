@@ -1371,10 +1371,10 @@ namespace Azure.DataApiBuilder.Service.Tests.Authorization
             Assert.AreEqual(expected: "openid", actual: resolvedClaims["scp"], message: "Unexpected scp claim returned.");
 
             bool didResolveUnauthenticatedRoleClaim = resolvedClaims[AuthenticationOptions.ROLE_CLAIM_TYPE] == "Don't_Parse_This_Role";
-            Assert.AreEqual(expected: false, actual: didResolveUnauthenticatedRoleClaim, message: "Unauthenticated roles claim erroneously resolved.");
+            Assert.IsFalse(didResolveUnauthenticatedRoleClaim, message: "Unauthenticated roles claim erroneously resolved.");
 
             bool didResolveUnauthenticatedOidClaim = resolvedClaims["oid"] == "1337";
-            Assert.AreEqual(expected: false, actual: didResolveUnauthenticatedRoleClaim, message: "Unauthenticated oid claim erroneously resolved.");
+            Assert.IsFalse(didResolveUnauthenticatedRoleClaim, message: "Unauthenticated oid claim erroneously resolved.");
         }
         #endregion
 

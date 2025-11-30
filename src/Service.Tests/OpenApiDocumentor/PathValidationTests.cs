@@ -68,7 +68,7 @@ namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration
             // 2. GetAll path:  "/customEntityPath"
             foreach (string actualPath in openApiDocument.Paths.Keys)
             {
-                Assert.AreEqual(expected: true, actual: actualPath.StartsWith(expectedOpenApiPath), message: PATH_GENERATION_ERROR + actualPath);
+                Assert.IsTrue(actualPath.StartsWith(expectedOpenApiPath), message: PATH_GENERATION_ERROR + actualPath);
             }
         }
     }
