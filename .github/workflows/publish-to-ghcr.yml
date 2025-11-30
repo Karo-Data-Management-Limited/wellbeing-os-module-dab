@@ -43,7 +43,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ASPIRE_DATABASE_TYPE: mssql
         run: |
-          aspire do build-wellbeing-os-data-api
+          aspire do build-wellbeing-os-data-api --log-level debug
 
       - name: Tag built image as latest
         run: |
