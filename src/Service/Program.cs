@@ -126,29 +126,12 @@ public partial class Program
     /// <returns>Appropriate log level.</returns>
     internal static LogLevel GetLogLevelFromCommandLineArgs(string[] args, out bool isLogLevelOverridenByCli)
         {
-            Option<LogLevel> logLevelOption = new(name: "--LogLevel");
-            Command cmd = new(name: "start");
+            RootCommand cmd = new("start");
+            Option<LogLevel> logLevelOption = new("--LogLevel");
             cmd.Add(logLevelOption);
             ParseResult result = cmd.Parse(args);
-            
-            // Check if the option was explicitly provided by checking tokens
-            bool matchedToken = result.Tokens.Any(t => t.Value == "--LogLevel");
-            LogLevel logLevel = LogLevel.Error;
-            
-            if (matchedToken)
-            {
-                // Find the token after --LogLevel
-                var tokens = result.Tokens.ToList();
-                int logLevelIndex = tokens.FindIndex(t => t.Value == "--LogLevel");
-                if (logLevelIndex >= 0 && logLevelIndex + 1 < tokens.Count)
-                {
-                    if (Enum.TryParse<LogLevel>(tokens[logLevelIndex + 1].Value, out var parsedLevel))
-                    {
-                        logLevel = parsedLevel;
-                    }
-                }
-            }
-            
+            bool matchedToken = result.Tokens.Count - result.UnmatchedTokens.Count > 1;
+            LogLevel logLevel = matchedToken ? result.GetValue(logLevelOption) : LogLevel.Error;
             isLogLevelOverridenByCli = matchedToken;
 
             if (logLevel is > LogLevel.None or < LogLevel.Trace)
@@ -163,14 +146,15 @@ public partial class Program
             return logLevel;
         }
 
-    /// <summary>
-    /// Creates a LoggerFactory and add filter with the given LogLevel.
-    /// </summary>
-    /// <param name="logLevel">Minimum log level.</param>
-    /// <param name="appTelemetryClient">Telemetry client</param>
-    /// <param name="logLevelInitializer">Hot-reloadable log level</param>
-    /// <param name="serilogLogger">Core Serilog logging pipeline</param>
-    public static ILoggerFactory GetLoggerFactoryForLogLevel(LogLevel logLevel, TelemetryClient? appTelemetryClient = null, LogLevelInitializer? logLevelInitializer = null, Logger? serilogLogger = null)
+
+        /// <summary>
+        /// Creates a LoggerFactory and add filter with the given LogLevel.
+        /// </summary>
+        /// <param name="logLevel">Minimum log level.</param>
+        /// <param name="appTelemetryClient">Telemetry client</param>
+        /// <param name="logLevelInitializer">Hot-reloadable log level</param>
+        /// <param name="serilogLogger">Core Serilog logging pipeline</param>
+        public static ILoggerFactory GetLoggerFactoryForLogLevel(LogLevel logLevel, TelemetryClient? appTelemetryClient = null, LogLevelInitializer? logLevelInitializer = null, Logger? serilogLogger = null)
         {
             return LoggerFactory
                 .Create(builder =>
@@ -263,16 +247,16 @@ public partial class Program
                 });
         }
 
-    /// <summary>
-    /// Use CommandLine parser to check for the flag `--no-https-redirect`.
-    /// If it is present, https redirection is disabled.
-    /// By Default, it is enabled.
-    /// </summary>
-    /// <param name="args">array that may contain flag to disable https redirection.</param>
-    internal static void DisableHttpsRedirectionIfNeeded(string[] args)
-    {
-        Command cmd = new(name: "start");
-        Option<string> httpsRedirectFlagOption = new(name: StartupConfiguration.NO_HTTPS_REDIRECT_FLAG);
+        /// <summary>
+        /// Use CommandLine parser to check for the flag `--no-https-redirect`.
+        /// If it is present, https redirection is disabled.
+        /// By Default, it is enabled.
+        /// </summary>
+        /// <param name="args">array that may contain flag to disable https redirection.</param>
+        private static void DisableHttpsRedirectionIfNeeded(string[] args)
+        {
+            RootCommand cmd = new("start");
+            Option<string> httpsRedirectFlagOption = new(StartupConfiguration.NO_HTTPS_REDIRECT_FLAG);
             cmd.Add(httpsRedirectFlagOption);
             ParseResult result = cmd.Parse(args);
             if (result.Tokens.Count - result.UnmatchedTokens.Count > 0)
@@ -285,28 +269,26 @@ public partial class Program
             IsHttpsRedirectionDisabled = false;
         }
 
-    // This is used for testing purposes only. The test web server takes in a
-    // IWebHostBuilder, instead of a IHostBuilder.
-#pragma warning disable ASPDEPR008
-    public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
-        WebHost
-            .CreateDefaultBuilder(args)
-            .ConfigureAppConfiguration((_, builder) =>
-            {
-                AddConfigurationProviders(builder, args);
-                DisableHttpsRedirectionIfNeeded(args);
-            })
-            #pragma warning disable CS0618 // Type or member is obsolete
-            .UseStartup<Startup>();
-            #pragma warning restore CS0618
+        // This is used for testing purposes only. The test web server takes in a
+        // IWebHostBuilder, instead of a IHostBuilder.
+#pragma warning disable ASPDEPR008 // WebHost is obsolete but still needed for test infrastructure
+#pragma warning disable CS0618 // Startup is obsolete but still needed for test infrastructure
+        public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
+            WebHost
+                .CreateDefaultBuilder(args)
+                .ConfigureAppConfiguration((_, builder) =>
+                {
+                    AddConfigurationProviders(builder, args);
+                    DisableHttpsRedirectionIfNeeded(args);
+                })
+                .UseStartup<Startup>();
 
-    // This is used for testing purposes only. The test web server takes in a
-    // IWebHostBuilder, instead of a IHostBuilder.
-    public static IWebHostBuilder CreateWebHostFromInMemoryUpdatableConfBuilder(string[] args) =>
-        WebHost.CreateDefaultBuilder(args)
-        #pragma warning disable CS0618 // Type or member is obsolete
-        .UseStartup<Startup>();
-        #pragma warning restore CS0618
+        // This is used for testing purposes only. The test web server takes in a
+        // IWebHostBuilder, instead of a IHostBuilder.
+        public static IWebHostBuilder CreateWebHostFromInMemoryUpdatableConfBuilder(string[] args) =>
+            WebHost.CreateDefaultBuilder(args)
+            .UseStartup<Startup>();
+#pragma warning restore CS0618
 #pragma warning restore ASPDEPR008
 
     /// <summary>

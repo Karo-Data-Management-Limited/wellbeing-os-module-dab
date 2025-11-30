@@ -319,7 +319,7 @@ namespace Azure.DataApiBuilder.Service.Tests.SqlTests.GraphQLSupportedTypesTests
             // Assert
             // Validate that the filter returned a result.
             bool receivedResultWithFilter = gqlResponse.TryGetProperty("items", out JsonElement items) && items.GetArrayLength() > 0;
-            Assert.AreEqual(expected: true, actual: receivedResultWithFilter, message: "Unexpected results and result count.");
+            Assert.IsTrue(receivedResultWithFilter, message: "Unexpected results and result count.");
 
             // Validate that the filter returned the value inserted during setup.
             JsonElement firstItem = items[0];

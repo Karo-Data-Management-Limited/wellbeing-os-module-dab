@@ -8,6 +8,7 @@ using Azure.DataApiBuilder.Config.ObjectModel;
 using Azure.DataApiBuilder.Core.Authorization;
 using Azure.DataApiBuilder.Core.Services.OpenAPI;
 using Microsoft.OpenApi;
+using Microsoft.OpenApi.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration;
@@ -42,7 +43,7 @@ public class ParameterValidationTests
         EntitySource entitySource = new(Object: objectName, entitySourceType, null, null);
         OpenApiDocument openApiDocument = await GenerateOpenApiDocumentForGivenEntityAsync(entityName, entitySource);
 
-        Assert.AreEqual(2, openApiDocument.Paths.Count);
+        Assert.HasCount(2, openApiDocument.Paths);
         Assert.IsTrue(openApiDocument.Paths.ContainsKey($"/{entityName}"));
         Assert.IsTrue(openApiDocument.Paths.ContainsKey($"/{entityName}/id/{{id}}"));
         foreach ((string pathName, OpenApiPathItem pathItem) in openApiDocument.Paths)
@@ -50,7 +51,7 @@ public class ParameterValidationTests
             string apiPathWithParam = $"/{entityName}/id/{{id}}";
             if (pathName.Equals(apiPathWithParam))
             {
-                Assert.IsTrue(pathItem.Parameters.Count is 1);
+                Assert.AreEqual(1, pathItem.Parameters.Count);
                 OpenApiParameter pathParameter = pathItem.Parameters.First();
                 Assert.AreEqual("id", pathParameter.Name);
                 Assert.AreEqual(ParameterLocation.Path, pathParameter.In);
@@ -59,7 +60,7 @@ public class ParameterValidationTests
             else
             {
                 // Get All and POST method with path /entityName, will have no path parameters.
-                Assert.IsTrue(pathItem.Parameters.Count is 0);
+                Assert.AreEqual(0, pathItem.Parameters.Count);
             }
         }
     }
@@ -79,7 +80,7 @@ public class ParameterValidationTests
         EntitySource entitySource = new(Object: objectName, entitySourceType, null, null);
         OpenApiDocument openApiDocument = await GenerateOpenApiDocumentForGivenEntityAsync(entityName, entitySource);
 
-        Assert.AreEqual(2, openApiDocument.Paths.Count);
+        Assert.HasCount(2, openApiDocument.Paths);
         Assert.IsTrue(openApiDocument.Paths.ContainsKey($"/{entityName}"));
         Assert.IsTrue(openApiDocument.Paths.ContainsKey($"/{entityName}/id/{{id}}"));
 
@@ -109,7 +110,7 @@ public class ParameterValidationTests
         EntitySource entitySource = new(Object: objectName, entitySourceType, null, null);
         OpenApiDocument openApiDocument = await GenerateOpenApiDocumentForGivenEntityAsync(entityName, entitySource);
 
-        Assert.AreEqual(2, openApiDocument.Paths.Count);
+        Assert.HasCount(2, openApiDocument.Paths);
         Assert.IsTrue(openApiDocument.Paths.ContainsKey($"/{entityName}"));
         Assert.IsTrue(openApiDocument.Paths.ContainsKey($"/{entityName}/id/{{id}}"));
 
@@ -166,10 +167,10 @@ public class ParameterValidationTests
                                                 entitySource,
                                                 supportedHttpMethods: new SupportedHttpVerb[] { SupportedHttpVerb.Get });
 
-        Assert.AreEqual(1, openApiDocument.Paths.Count);
+        Assert.HasCount(1, openApiDocument.Paths);
         Assert.IsTrue(openApiDocument.Paths.ContainsKey($"/{entityName}"));
         OpenApiPathItem pathItem = openApiDocument.Paths.First().Value;
-        Assert.AreEqual(1, pathItem.Operations.Count);
+        Assert.HasCount(1, pathItem.Operations);
         Assert.IsTrue(pathItem.Operations.ContainsKey(OperationType.Get));
 
         OpenApiOperation operation = pathItem.Operations[OperationType.Get];
@@ -200,9 +201,9 @@ public class ParameterValidationTests
         EntitySource entitySource = new(Object: objectName, EntitySourceType.StoredProcedure, Parameters: null, KeyFields: null);
         OpenApiDocument openApiDocument = await GenerateOpenApiDocumentForGivenEntityAsync(entityName, entitySource, supportedHttpVerbs);
 
-        Assert.AreEqual(1, openApiDocument.Paths.Count);
+        Assert.HasCount(1, openApiDocument.Paths);
         OpenApiPathItem pathItem = openApiDocument.Paths.First().Value;
-        Assert.AreEqual(1, pathItem.Operations.Count);
+        Assert.HasCount(1, pathItem.Operations);
         Assert.AreEqual(supportedHttpVerbs.First().ToString(), pathItem.Operations.Keys.First().ToString());
         Assert.IsFalse(pathItem.Operations.Values.First().Parameters.Any(param => param.In is ParameterLocation.Query));
     }
@@ -265,9 +266,6 @@ public class ParameterValidationTests
     [DataRow("BooksTable", "books", EntitySourceType.Table, DisplayName = "Assert custom header presence in header parameters for table.")]
     [DataRow("BooksView", "books_view_all", EntitySourceType.View, DisplayName = "Assert custom header presence in header parameters for view.")]
     [DataRow("UpdateBookTitle", "update_book_title", EntitySourceType.StoredProcedure, DisplayName = "Assert custom header presence in header parameters for stored procedure.")]
-    [DataRow("BooksTable", "books", EntitySourceType.Table, DisplayName = "Validate custom header presence in header parameters for table.")]
-    [DataRow("BooksView", "books_view_all", EntitySourceType.View, DisplayName = "Validate custom header presence in header parameters for view.")]
-    [DataRow("UpdateBookTitle", "update_book_title", EntitySourceType.StoredProcedure, DisplayName = "Validate custom header presence in header parameters for stored procedure.")]
     public async Task ValidateHeaderParametersForEntity(string entityName, string objectName, EntitySourceType entitySourceType)
     {
         EntitySource entitySource = new(Object: objectName, Type: entitySourceType, Parameters: null, KeyFields: null);

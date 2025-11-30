@@ -324,7 +324,7 @@ namespace Cli.Tests
 
             // Create VerifySettings and add all arguments to the method as parameters
             VerifySettings verifySettings = new();
-            verifySettings.UseHashedParameters(authenticationProvider, audience, issuer);
+            verifySettings.UseParameters(authenticationProvider, audience, issuer);
             return ExecuteVerifyTest(options, verifySettings);
         }
 
@@ -489,7 +489,7 @@ namespace Cli.Tests
             }
 
             VerifySettings verifySettings = new();
-            verifySettings.UseHashedParameters(databaseType, isMultipleCreateEnabled);
+            verifySettings.UseParameters(databaseType, isMultipleCreateEnabled);
             return ExecuteVerifyTest(options, verifySettings);
         }
 

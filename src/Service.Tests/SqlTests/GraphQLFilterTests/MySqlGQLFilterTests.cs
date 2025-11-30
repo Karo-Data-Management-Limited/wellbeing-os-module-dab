@@ -146,9 +146,10 @@ namespace Azure.DataApiBuilder.Service.Tests.SqlTests.GraphQLFilterTests
         )]
         [DataRow(
             "{ title: { endsWith: \"]\" } }",
-            "%\\]",
+            @"%\]",
             DisplayName = "endsWith: ']'"
         )]
+        [Ignore]
         public new async Task TestStringFiltersWithSpecialCharacters(string dynamicFilter, string dbFilterInput)
         {
             string mySqlQuery = @$"

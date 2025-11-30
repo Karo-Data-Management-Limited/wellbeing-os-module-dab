@@ -47,7 +47,6 @@ namespace Azure.DataApiBuilder.Service.Tests.UnitTests
         [DataRow("rest-api/Book/id/1", "/rest-api", "Book", "id/1")]
         [DataRow("rest api/Book/id/1", "/rest api", "Book", "id/1")]
         [DataRow(" rest_api/commodities/categoryid/1/pieceid/1", "/ rest_api", "commodities", "categoryid/1/pieceid/1")]
-        [DataRow("rest-api/Book/id/1", "/rest-api", "Book", "id/1")]
         public void ParseEntityNameAndPrimaryKeyTest(
             string route,
             string path,

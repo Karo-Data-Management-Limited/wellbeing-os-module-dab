@@ -49,7 +49,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Authorization.GraphQL
                 graphQLQueryName,
                 isAuthenticated: true,
                 clientRoleHeader: "policy_tester_02");
-            Assert.AreEqual(expected: true, actual: actual.ValueKind is JsonValueKind.Null);
+            Assert.IsTrue(actual.ValueKind is JsonValueKind.Null);
 
             // Tests Book Read Policy: @item.id ne 9
             // Expects a null result, HotChocolate  returns -> "book_by_pk": null
@@ -58,7 +58,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Authorization.GraphQL
                 graphQLQueryName,
                 isAuthenticated: true,
                 clientRoleHeader: "policy_tester_05");
-            Assert.AreEqual(expected: true, actual: actual.ValueKind is JsonValueKind.Null);
+            Assert.IsTrue(actual.ValueKind is JsonValueKind.Null);
         }
 
         /// <summary>
@@ -105,7 +105,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Authorization.GraphQL
                 graphQLQueryName,
                 isAuthenticated: true,
                 clientRoleHeader: "policy_tester_06");
-            Assert.AreEqual(expected: true, actual: actual.ValueKind is JsonValueKind.Null);
+            Assert.IsTrue(actual.ValueKind is JsonValueKind.Null);
         }
 
         /// <summary>

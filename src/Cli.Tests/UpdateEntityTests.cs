@@ -427,7 +427,7 @@ namespace Cli.Tests
             string initialConfig = AddPropertiesToJson(INITIAL_CONFIG, SINGLE_ENTITY);
 
             VerifySettings settings = new();
-            settings.UseHashedParameters(fieldsToInclude, fieldsToExclude, policyRequest, policyDatabase);
+            settings.UseParameters(fieldsToInclude, fieldsToExclude, policyRequest, policyDatabase);
             return ExecuteVerifyTest(initialConfig, options, settings);
         }
 
@@ -457,7 +457,7 @@ namespace Cli.Tests
             string initialConfig = AddPropertiesToJson(INITIAL_CONFIG, BASIC_ENTITY_WITH_ANONYMOUS_ROLE);
 
             VerifySettings settings = new();
-            settings.UseHashedParameters(source, sourceType, permissions, parameters, keyFields);
+            settings.UseParameters(source, sourceType, permissions, parameters, keyFields);
             return ExecuteVerifyTest(initialConfig, options, settings);
         }
 
@@ -556,7 +556,7 @@ namespace Cli.Tests
             {
                 Assert.AreNotSame(runtimeConfig, updatedConfig);
                 VerifySettings settings = new();
-                settings.UseHashedParameters(sourceType, parameters, keyFields, permissions, expectNoKeyFieldsAndParameters);
+                settings.UseParameters(sourceType, parameters, keyFields, permissions, expectNoKeyFieldsAndParameters);
                 return Verify(updatedConfig, settings);
             }
 
@@ -776,7 +776,7 @@ namespace Cli.Tests
             string initialConfig = AddPropertiesToJson(INITIAL_CONFIG, SP_DEFAULT_REST_METHODS_GRAPHQL_OPERATION);
 
             VerifySettings settings = new();
-            settings.UseHashedParameters(restMethods, graphQLOperation, restRoute, graphQLType, testType);
+            settings.UseParameters(restMethods, graphQLOperation, restRoute, graphQLType, testType);
             return ExecuteVerifyTest(initialConfig, options, settings);
         }
 
