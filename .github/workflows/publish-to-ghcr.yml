@@ -60,9 +60,19 @@ jobs:
           GHCR_REPO="ghcr.io/${REPO_OWNER_LOWER}/${MODULE_NAME}"
           IMAGE_TAG="${{ github.sha }}"
           
+          # Find the image built by Aspire (it uses a hash-based tag)
+          ASPIRE_IMAGE=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^${MODULE_NAME}:" | head -n 1)
+          
+          if [ -z "$ASPIRE_IMAGE" ]; then
+            echo "Error: No Aspire-built image found for ${MODULE_NAME}"
+            docker images
+            exit 1
+          fi
+          
+          echo "Found Aspire image: $ASPIRE_IMAGE"
           echo "Tagging and pushing ${MODULE_NAME}:$IMAGE_TAG to GHCR..."
-          docker tag ${MODULE_NAME}:latest $GHCR_REPO:$IMAGE_TAG
-          docker tag ${MODULE_NAME}:latest $GHCR_REPO:latest
+          docker tag $ASPIRE_IMAGE $GHCR_REPO:$IMAGE_TAG
+          docker tag $ASPIRE_IMAGE $GHCR_REPO:latest
           docker push $GHCR_REPO:$IMAGE_TAG
           docker push $GHCR_REPO:latest
           

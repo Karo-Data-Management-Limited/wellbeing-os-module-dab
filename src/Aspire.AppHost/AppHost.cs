@@ -93,13 +93,27 @@ var builder = DistributedApplication.CreateBuilder(args);
 // }
 #pragma warning disable ASPIREDOCKERFILEBUILDER001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
-builder.AddProject<Projects.Azure_DataApiBuilder_Service>("wellbeing-os-data-api").PublishAsDockerFile(docker =>
-{
-    docker.WithDockerfileBuilder("../Service", context =>
+builder.AddProject<Projects.Azure_DataApiBuilder_Service>("wellbeing-os-data-api")
+    .PublishAsDockerFile(docker =>
     {
-               context.Builder.From("mcr.microsoft.com/dotnet/sdk:10.0-azurelinux3.0");
+        docker.WithDockerfileBuilder("../..", context =>
+        {
+            // Build stage - using Azure Linux 3.0 for native library compatibility
+            var buildStage = context.Builder
+                .From("mcr.microsoft.com/dotnet/sdk:10.0-azurelinux3.0", "build")
+                .WorkDir("/src")
+                .Copy(".", "./")
+                .Run("dotnet build \"./src/Service/Azure.DataApiBuilder.Service.csproj\" -c Docker -o /out -r linux-x64");
+
+            // Runtime stage - Azure Linux includes required native libraries for Npgsql
+            context.Builder
+                .From("mcr.microsoft.com/dotnet/aspnet:10.0-azurelinux3.0")
+                .CopyFrom(buildStage.StageName!, "/out", "/App")
+                .WorkDir("/App")
+                .Env("ASPNETCORE_URLS", "http://+:5000")
+                .Entrypoint(["dotnet", "Azure.DataApiBuilder.Service.dll"]);
+        });
     });
-});
 
 #pragma warning restore ASPIREDOCKERFILEBUILDER001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
