@@ -91,8 +91,17 @@ var builder = DistributedApplication.CreateBuilder(args);
 //     default:
 //         throw new Exception("Please set the ASPIRE_DATABASE environment variable to either 'mssql' or 'postgresql'.");
 // }
+#pragma warning disable ASPIREDOCKERFILEBUILDER001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
-builder.AddProject<Projects.Azure_DataApiBuilder_Service>("wellbeing-os-data-api");
+builder.AddProject<Projects.Azure_DataApiBuilder_Service>("wellbeing-os-data-api").PublishAsDockerFile(docker =>
+{
+    docker.WithDockerfileBuilder("../service", context =>
+    {
+               context.Builder.From("mcr.microsoft.com/dotnet/sdk:10.0-azurelinux3.0");
 
+    });
+});
+
+#pragma warning restore ASPIREDOCKERFILEBUILDER001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
 builder.Build().Run();
