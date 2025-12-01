@@ -109,7 +109,7 @@ builder.AddProject<Projects.Azure_DataApiBuilder_Service>("wellbeing-os-data-api
             context.Builder
                 .From("mcr.microsoft.com/dotnet/aspnet:10.0-azurelinux3.0")
                 .CopyFrom(buildStage.StageName!, "/out", "/App")
-                .Copy("./src/Service/dab-config.json", "/App/dab-config.json")
+                .CopyFrom(buildStage.StageName!, "/src/.github/dab-config.json", "/App/dab-config.json")
                 .WorkDir("/App")
                 .Env("ASPNETCORE_URLS", "http://+:5000")
                 .Entrypoint(["dotnet", "Azure.DataApiBuilder.Service.dll"]);

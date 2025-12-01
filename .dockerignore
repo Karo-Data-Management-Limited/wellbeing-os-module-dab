@@ -46,6 +46,7 @@ docker-compose*.yml
 # Config (will be mounted or env vars)
 **/dab-config*.json
 !config/dab-config.template.json
+!.github/dab-config.json
 
 # Scripts
 scripts/
