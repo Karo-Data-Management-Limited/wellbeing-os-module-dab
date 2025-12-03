@@ -50,7 +50,7 @@
     },
     "dashboard-goals": {
       "source": {
-        "type": "table",
+        "type": "view",
         "object": "whanau_ora.fact_goals_snapshot",
         "key-fields": [
           "org_sk",
@@ -193,10 +193,11 @@
     },
     "dim-domain": {
       "source": {
-        "type": "table",
+        "type": "view",
         "object": "whanau_ora.dim_domain",
         "key-fields": [
-          "domain_sk"
+          "domain_sk",
+          "orgid"
         ]
       },
       "rest": {
@@ -216,10 +217,11 @@
     },
     "dim-outcome-area": {
       "source": {
-        "type": "table",
+        "type": "view",
         "object": "whanau_ora.dim_outcome_area",
         "key-fields": [
-          "outcome_area_sk"
+          "outcome_area_sk",
+          "orgid"
         ]
       },
       "rest": {
