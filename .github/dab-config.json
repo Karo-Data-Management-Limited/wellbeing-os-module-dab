@@ -30,7 +30,9 @@
         "object": "whanau_ora.mv_dashboard_overview_daily",
         "key-fields": [
           "org_sk",
-          "date_id"
+          "date_id",
+          "activity_type",
+          "activity_id"
         ]
       },
       "rest": {
@@ -414,6 +416,33 @@
       "rest": {
         "methods": [
           "get"
+        ]
+      },
+      "graphql": false,
+      "permissions": [
+        {
+          "role": "anonymous",
+          "actions": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "dashboard-summary": {
+      "source": {
+        "type": "view",
+        "object": "whanau_ora.mv_dashboard_summary",
+        "key-fields": [
+          "date_sk",
+          "orgid",
+          "domain_sk",
+          "outcome_area_sk"
+        ]
+      },
+      "rest": {
+        "path": "/dashboard-summary",
+        "methods": [
+          "GET"
         ]
       },
       "graphql": false,
