@@ -24,20 +24,21 @@
     }
   },
   "entities": {
-    "dashboard-overview": {
+    "dashboard-summary": {
       "source": {
         "type": "view",
-        "object": "whanau_ora.mv_dashboard_overview_daily",
+        "object": "whanau_ora.mv_dashboard_summary",
         "key-fields": [
-          "org_sk",
-          "date_id",
-          "activity_type",
-          "activity_id"
+          "date_sk",
+          "orgid",
+          "domain_sk",
+          "outcome_area_sk"
         ]
       },
       "rest": {
+        "path": "/dashboard-summary",
         "methods": [
-          "get"
+          "GET"
         ]
       },
       "graphql": false,
@@ -50,18 +51,21 @@
         }
       ]
     },
-    "dashboard-goals": {
+    "outcomes-summary": {
       "source": {
         "type": "view",
-        "object": "whanau_ora.fact_goals_snapshot",
+        "object": "whanau_ora.mv_outcomes_summary",
         "key-fields": [
-          "org_sk",
-          "goal_id"
+          "date_sk",
+          "orgid",
+          "outcome_area_sk",
+          "status_label"
         ]
       },
       "rest": {
+        "path": "/outcomes-summary",
         "methods": [
-          "get"
+          "GET"
         ]
       },
       "graphql": false,
@@ -76,223 +80,12 @@
     },
     "dashboard-referrals": {
       "source": {
-        "type": "table",
+        "type": "view",
         "object": "whanau_ora.fact_referrals_daily",
         "key-fields": [
           "org_sk",
           "date_id",
-          "client_sk",
-          "service_sk",
-          "provider_sk"
-        ]
-      },
-      "rest": {
-        "methods": [
-          "get"
-        ]
-      },
-      "graphql": false,
-      "permissions": [
-        {
-          "role": "anonymous",
-          "actions": [
-            "read"
-          ]
-        }
-      ]
-    },
-    "dim-date": {
-      "source": {
-        "type": "view",
-        "object": "whanau_ora.v_dim_date",
-        "key-fields": [
-          "date_id"
-        ]
-      },
-      "rest": {
-        "methods": [
-          "get"
-        ]
-      },
-      "graphql": false,
-      "permissions": [
-        {
-          "role": "anonymous",
-          "actions": [
-            "read"
-          ]
-        }
-      ]
-    },
-    "dim-org": {
-      "source": {
-        "type": "table",
-        "object": "whanau_ora.dim_org",
-        "key-fields": [
-          "org_sk"
-        ]
-      },
-      "rest": {
-        "methods": [
-          "get"
-        ]
-      },
-      "graphql": false,
-      "permissions": [
-        {
-          "role": "anonymous",
-          "actions": [
-            "read"
-          ]
-        }
-      ]
-    },
-    "dim-client": {
-      "source": {
-        "type": "table",
-        "object": "whanau_ora.dim_client",
-        "key-fields": [
           "client_sk"
-        ]
-      },
-      "rest": {
-        "methods": [
-          "get"
-        ]
-      },
-      "graphql": false,
-      "permissions": [
-        {
-          "role": "anonymous",
-          "actions": [
-            "read"
-          ]
-        }
-      ]
-    },
-    "dim-whanau": {
-      "source": {
-        "type": "table",
-        "object": "whanau_ora.dim_whanau",
-        "key-fields": [
-          "whanau_sk"
-        ]
-      },
-      "rest": {
-        "methods": [
-          "get"
-        ]
-      },
-      "graphql": false,
-      "permissions": [
-        {
-          "role": "anonymous",
-          "actions": [
-            "read"
-          ]
-        }
-      ]
-    },
-    "dim-domain": {
-      "source": {
-        "type": "view",
-        "object": "whanau_ora.dim_domain",
-        "key-fields": [
-          "domain_sk",
-          "orgid"
-        ]
-      },
-      "rest": {
-        "methods": [
-          "get"
-        ]
-      },
-      "graphql": false,
-      "permissions": [
-        {
-          "role": "anonymous",
-          "actions": [
-            "read"
-          ]
-        }
-      ]
-    },
-    "dim-outcome-area": {
-      "source": {
-        "type": "view",
-        "object": "whanau_ora.dim_outcome_area",
-        "key-fields": [
-          "outcome_area_sk",
-          "orgid"
-        ]
-      },
-      "rest": {
-        "methods": [
-          "get"
-        ]
-      },
-      "graphql": false,
-      "permissions": [
-        {
-          "role": "anonymous",
-          "actions": [
-            "read"
-          ]
-        }
-      ]
-    },
-    "dim-service": {
-      "source": {
-        "type": "table",
-        "object": "whanau_ora.dim_service",
-        "key-fields": [
-          "service_sk"
-        ]
-      },
-      "rest": {
-        "methods": [
-          "get"
-        ]
-      },
-      "graphql": false,
-      "permissions": [
-        {
-          "role": "anonymous",
-          "actions": [
-            "read"
-          ]
-        }
-      ]
-    },
-    "dim-provider": {
-      "source": {
-        "type": "table",
-        "object": "whanau_ora.dim_provider",
-        "key-fields": [
-          "provider_sk"
-        ]
-      },
-      "rest": {
-        "methods": [
-          "get"
-        ]
-      },
-      "graphql": false,
-      "permissions": [
-        {
-          "role": "anonymous",
-          "actions": [
-            "read"
-          ]
-        }
-      ]
-    },
-    "dim-locality": {
-      "source": {
-        "type": "table",
-        "object": "whanau_ora.dim_locality",
-        "key-fields": [
-          "locality_sk"
         ]
       },
       "rest": {
@@ -339,6 +132,29 @@
         "object": "whanau_ora.dim_client_demographics",
         "key-fields": [
           "client_sk"
+        ]
+      },
+      "rest": {
+        "methods": [
+          "get"
+        ]
+      },
+      "graphql": false,
+      "permissions": [
+        {
+          "role": "anonymous",
+          "actions": [
+            "read"
+          ]
+        }
+      ]
+    },
+    "demographics-summary": {
+      "source": {
+        "type": "view",
+        "object": "whanau_ora.mv_demographics_summary",
+        "key-fields": [
+          "row_sk"
         ]
       },
       "rest": {
@@ -416,33 +232,6 @@
       "rest": {
         "methods": [
           "get"
-        ]
-      },
-      "graphql": false,
-      "permissions": [
-        {
-          "role": "anonymous",
-          "actions": [
-            "read"
-          ]
-        }
-      ]
-    },
-    "dashboard-summary": {
-      "source": {
-        "type": "view",
-        "object": "whanau_ora.mv_dashboard_summary",
-        "key-fields": [
-          "date_sk",
-          "orgid",
-          "domain_sk",
-          "outcome_area_sk"
-        ]
-      },
-      "rest": {
-        "path": "/dashboard-summary",
-        "methods": [
-          "GET"
         ]
       },
       "graphql": false,
