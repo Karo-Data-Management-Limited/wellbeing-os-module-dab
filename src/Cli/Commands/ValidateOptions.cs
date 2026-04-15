@@ -29,7 +29,7 @@ namespace Cli.Commands
         public int Handler(ILogger logger, FileSystemRuntimeConfigLoader loader, IFileSystem fileSystem)
         {
             logger.LogInformation("{productName} {version}", PRODUCT_NAME, ProductInfo.GetProductVersion());
-            StartupConfiguration.AddValidFilters();
+            Startup.AddValidFilters();
             bool isValidConfig = ConfigGenerator.IsConfigValid(this, loader, fileSystem);
 
             if (isValidConfig)
@@ -38,7 +38,7 @@ namespace Cli.Commands
             }
             else
             {
-                logger.LogError("Config is invalid. Check above logs for details.");
+                logger.LogError("Config is invalid.");
             }
 
             return isValidConfig ? CliReturnCode.SUCCESS : CliReturnCode.GENERAL_ERROR;

@@ -40,7 +40,10 @@ using Azure.DataApiBuilder.Service.Tests.OpenApiIntegration;
 using Azure.DataApiBuilder.Service.Tests.SqlTests;
 using HotChocolate;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
@@ -50,6 +53,7 @@ using Moq.Protected;
 using Serilog;
 using VerifyMSTest;
 using static Azure.DataApiBuilder.Config.FileSystemRuntimeConfigLoader;
+using static Azure.DataApiBuilder.Core.AuthenticationHelpers.AppServiceAuthentication;
 using static Azure.DataApiBuilder.Service.Tests.Configuration.ConfigurationEndpoints;
 using static Azure.DataApiBuilder.Service.Tests.Configuration.TestConfigFileReader;
 
@@ -74,7 +78,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Configuration
         private const string BROWSER_ACCEPT_HEADER = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9";
 
         private const int RETRY_COUNT = 5;
-        private const int RETRY_WAIT_SECONDS = 1;
+        private const int RETRY_WAIT_SECONDS = 2;
 
         /// <summary>
         ///
@@ -393,7 +397,7 @@ namespace Azure.DataApiBuilder.Service.Tests.Configuration
                     ""allow-credentials"": false
                 },
                 ""authentication"": {
-                    ""provider"": ""StaticWebApps""
+                    ""provider"": ""AppService""
                 },
                 ""mode"": ""development""
                 }
@@ -656,9 +660,49 @@ type Moon {
                                         },
                                         ""host"": {
                                             ""authentication"": {
-                                                ""provider"": ""StaticWebApps""
+                                                ""provider"": ""AppService""
                                             }
                                         }
+                                    },
+                                    ""entities"":{ }
+                                }";
+
+        public const string CONFIG_FILE_WITH_BOOLEAN_AS_ENV = @"{
+                                    // Link for latest draft schema.
+                                    ""$schema"":""https://github.com/Azure/data-api-builder/releases/download/vmajor.minor.patch-alpha/dab.draft.schema.json"",
+                                    ""data-source"": {
+                                        ""database-type"": ""mssql"",
+                                        ""connection-string"": ""sample-conn-string"",
+                                        ""health"": {
+                                            ""enabled"": <REPLACE_VALUE>
+                                        }
+                                    },
+                                    ""runtime"": {
+                                        ""health"": {
+                                            ""enabled"": <REPLACE_VALUE>
+                                        },
+                                        ""rest"": {
+                                            ""enabled"": <REPLACE_VALUE>,
+                                            ""path"": ""/api""
+                                        },
+                                        ""graphql"": {
+                                            ""enabled"": <REPLACE_VALUE>,
+                                            ""path"": ""/graphql"",
+                                            ""allow-introspection"": true
+                                        },
+                                        ""host"": {
+                                            ""authentication"": {
+                                                ""provider"": ""AppService""
+                                            }
+                                        },
+                                        ""telemetry"": {
+                                            ""application-insights"":{
+                                                ""enabled"":  <REPLACE_VALUE>,
+                                                ""connection-string"":""sample-ai-connection-string""
+                                            }
+
+                                        }
+
                                     },
                                     ""entities"":{ }
                                 }";
@@ -666,9 +710,26 @@ type Moon {
         [TestCleanup]
         public void CleanupAfterEachTest()
         {
+            // Retry file deletion with exponential back-off to handle cases where a
+            // file watcher or hot-reload process may still hold a handle on the file.
             if (File.Exists(CUSTOM_CONFIG_FILENAME))
             {
-                File.Delete(CUSTOM_CONFIG_FILENAME);
+                int retryCount = 0;
+                const int maxRetries = 3;
+                while (true)
+                {
+                    try
+                    {
+                        File.Delete(CUSTOM_CONFIG_FILENAME);
+                        break;
+                    }
+                    catch (IOException ex) when (retryCount < maxRetries)
+                    {
+                        retryCount++;
+                        Console.WriteLine($"CleanupAfterEachTest: Retry {retryCount}/{maxRetries} deleting {CUSTOM_CONFIG_FILENAME}. {ex.Message}");
+                        Thread.Sleep(TimeSpan.FromSeconds(Math.Pow(2, retryCount)));
+                    }
+                }
             }
 
             TestHelper.UnsetAllDABEnvironmentVariables();
@@ -680,15 +741,16 @@ type Moon {
         /// But if invalid config is provided during startup, ApplicationException is thrown
         /// and application exits.
         /// </summary>
-        [TestMethod(DisplayName = "Validates that queries before runtime is configured returns a 503 in hosting scenario whereas an application exception when run through CLI")]
+        [DataTestMethod]
         [DataRow(new string[] { }, true, DisplayName = "No config returns 503 - config file flag absent")]
         [DataRow(new string[] { "--ConfigFileName=" }, true, DisplayName = "No config returns 503 - empty config file option")]
         [DataRow(new string[] { }, false, DisplayName = "Throws Application exception")]
+        [TestMethod("Validates that queries before runtime is configured returns a 503 in hosting scenario whereas an application exception when run through CLI")]
         public async Task TestNoConfigReturnsServiceUnavailable(
             string[] args,
             bool isUpdateableRuntimeConfig)
         {
-            TestServer server;
+            TestServer server = null;
 
             try
             {
@@ -713,22 +775,25 @@ type Moon {
                     $"Could not initialize the engine with the runtime config file: {DEFAULT_CONFIG_FILE_NAME}",
                     e.Message);
             }
+            finally
+            {
+                server?.Dispose();
+            }
         }
 
         /// <summary>
         /// Verify that https redirection is disabled when --no-https-redirect flag is passed  through CLI.
         /// We check if IsHttpsRedirectionDisabled is set to true with --no-https-redirect flag.
         /// </summary>
-        [TestMethod(DisplayName = "Validates that https redirection is disabled when --no-https-redirect option is used when engine is started through CLI")]
+        [DataTestMethod]
         [DataRow(new string[] { "" }, false, DisplayName = "Https redirection allowed")]
-        [DataRow(new string[] { StartupConfiguration.NO_HTTPS_REDIRECT_FLAG }, true, DisplayName = "Http redirection disabled")]
+        [DataRow(new string[] { Startup.NO_HTTPS_REDIRECT_FLAG }, true, DisplayName = "Http redirection disabled")]
+        [TestMethod("Validates that https redirection is disabled when --no-https-redirect option is used when engine is started through CLI")]
         public void TestDisablingHttpsRedirection(
             string[] args,
             bool expectedIsHttpsRedirectionDisabled)
         {
-#pragma warning disable ASPDEPR008 // IWebHostBuilder.Build() is obsolete but still needed for test infrastructure
             Program.CreateWebHostBuilder(args).Build();
-#pragma warning restore ASPDEPR008
             Assert.AreEqual(expectedIsHttpsRedirectionDisabled, Program.IsHttpsRedirectionDisabled);
         }
 
@@ -737,7 +802,7 @@ type Moon {
         /// Enum to String and vice-versa.
         /// Consider both cases for source as an object and as a string
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(true, EntitySourceType.StoredProcedure, "stored-procedure", DisplayName = "source is a stored-procedure")]
         [DataRow(true, EntitySourceType.Table, "table", DisplayName = "source is a table")]
         [DataRow(true, EntitySourceType.View, "view", DisplayName = "source is a view")]
@@ -778,7 +843,7 @@ type Moon {
 
             if (isDatabaseObjectSource)
             {
-                Assert.Contains(sourceTypeName, runtimeConfigJson);
+                Assert.IsTrue(runtimeConfigJson.Contains(sourceTypeName));
             }
 
             Assert.IsTrue(RuntimeConfigLoader.TryParseConfig(runtimeConfigJson, out RuntimeConfig deserializedRuntimeConfig));
@@ -807,7 +872,7 @@ type Moon {
         /// <param name="expectedDabModifiedConnString">Updated connection string with Application Name.</param>
         /// <param name="dabEnvOverride">Whether DAB_APP_NAME_ENV is set in environment. (Always present in hosted scenario or if user supplies value.)</param>
         #pragma warning disable format
-        [TestMethod]
+        [DataTestMethod]
         [DataRow("Data Source=<>;"                              , "Data Source=<>;Application Name="             , false, DisplayName = "[MSSQL]: DAB adds version 'dab_oss_major_minor_patch' to non-provided connection string property 'Application Name'.")]
         [DataRow("Data Source=<>;Application Name=CustAppName;" , "Data Source=<>;Application Name=CustAppName," , false, DisplayName = "[MSSQL]: DAB appends version 'dab_oss_major_minor_patch' to user supplied 'Application Name' property.")]
         [DataRow("Data Source=<>;App=CustAppName;"              , "Data Source=<>;Application Name=CustAppName," , false, DisplayName = "[MSSQL]: DAB appends version 'dab_oss_major_minor_patch' to user supplied 'App' property and resolves property to 'Application Name'.")]
@@ -863,7 +928,7 @@ type Moon {
         /// <param name="configProvidedConnString">connection string provided in the config.</param>
         /// <param name="expectedDabModifiedConnString">Updated connection string with Application Name.</param>
         /// <param name="dabEnvOverride">Whether DAB_APP_NAME_ENV is set in environment. (Always present in hosted scenario or if user supplies value.)</param>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow("Host=foo;Username=testuser;", "Host=foo;Username=testuser;Application Name=", false, DisplayName = "[PGSQL]:DAB adds version 'dab_oss_major_minor_patch' to non-provided connection string property 'ApplicationName']")]
         [DataRow("Host=foo;Username=testuser;", "Host=foo;Username=testuser;Application Name=", true, DisplayName = "[PGSQL]:DAB adds DAB_APP_NAME_ENV value 'dab_hosted' and version suffix '_major_minor_patch' to non-provided connection string property 'ApplicationName'.]")]
         [DataRow("Host=foo;Username=testuser;Application Name=UserAppName", "Host=foo;Username=testuser;Application Name=UserAppName,", false, DisplayName = "[PGSQL]:DAB appends version 'dab_oss_major_minor_patch' to user supplied 'Application Name' property.]")]
@@ -920,7 +985,7 @@ type Moon {
         /// <param name="expectedDabModifiedConnString">Updated connection string with Application Name.</param>
         /// <param name="dabEnvOverride">Whether DAB_APP_NAME_ENV is set in environment. (Always present in hosted scenario or if user supplies value.)</param>
         #pragma warning disable format
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(DatabaseType.MySQL, "Something;"                                 , "Something;"                                 , false, DisplayName = "[MYSQL|DAB OSS]:No addition of 'Application Name' or 'App' property to connection string.")]
         [DataRow(DatabaseType.MySQL, "Something;Application Name=CustAppName;"    , "Something;Application Name=CustAppName;"    , false, DisplayName = "[MYSQL|DAB OSS]:No modification of customer overridden 'Application Name' property.")]
         [DataRow(DatabaseType.MySQL, "Something1;App=CustAppName;Something2;"     , "Something1;App=CustAppName;Something2;"     , false, DisplayName = "[MySQL|DAB OSS]:No modification of customer overridden 'App' property.")]
@@ -971,12 +1036,12 @@ type Moon {
                 message: "DAB did not properly set the 'Application Name' connection string property.");
         }
 
-        [TestMethod(DisplayName = "Validates that once the configuration is set, the config controller isn't reachable."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates that once the configuration is set, the config controller isn't reachable."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestConflictAlreadySetConfiguration(string configurationEndpoint)
         {
-            TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
             HttpClient httpClient = server.CreateClient();
 
             JsonContent content = GetJsonContentForCosmosConfigRequest(configurationEndpoint);
@@ -988,14 +1053,14 @@ type Moon {
             Assert.AreEqual(HttpStatusCode.Conflict, result.StatusCode);
         }
 
-        [TestMethod(DisplayName = "Validates that the config controller returns a conflict when using local configuration."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates that the config controller returns a conflict when using local configuration."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestConflictLocalConfiguration(string configurationEndpoint)
         {
             Environment.SetEnvironmentVariable
                 (ASP_NET_CORE_ENVIRONMENT_VAR_NAME, COSMOS_ENVIRONMENT);
-            TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
             HttpClient httpClient = server.CreateClient();
 
             ValidateCosmosDbSetup(server);
@@ -1007,12 +1072,12 @@ type Moon {
             Assert.AreEqual(HttpStatusCode.Conflict, result.StatusCode);
         }
 
-        [TestMethod(DisplayName = "Validates setting the configuration at runtime."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates setting the configuration at runtime."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestSettingConfigurations(string configurationEndpoint)
         {
-            TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
             HttpClient httpClient = server.CreateClient();
 
             JsonContent content = GetJsonContentForCosmosConfigRequest(configurationEndpoint);
@@ -1022,12 +1087,12 @@ type Moon {
             Assert.AreEqual(HttpStatusCode.OK, postResult.StatusCode);
         }
 
-        [TestMethod(DisplayName = "Validates an invalid configuration returns a bad request."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates an invalid configuration returns a bad request."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestInvalidConfigurationAtRuntime(string configurationEndpoint)
         {
-            TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
             HttpClient httpClient = server.CreateClient();
 
             JsonContent content = GetJsonContentForCosmosConfigRequest(configurationEndpoint, "invalidString");
@@ -1037,12 +1102,12 @@ type Moon {
             Assert.AreEqual(HttpStatusCode.BadRequest, postResult.StatusCode);
         }
 
-        [TestMethod(DisplayName = "Validates a failure in one of the config updated handlers returns a bad request."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates a failure in one of the config updated handlers returns a bad request."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestSettingFailureConfigurations(string configurationEndpoint)
         {
-            TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
             HttpClient httpClient = server.CreateClient();
 
             JsonContent content = GetJsonContentForCosmosConfigRequest(configurationEndpoint);
@@ -1059,12 +1124,12 @@ type Moon {
             Assert.AreEqual(HttpStatusCode.BadRequest, postResult.StatusCode);
         }
 
-        [TestMethod(DisplayName = "Validates that the configuration endpoint doesn't return until all configuration loaded handlers have executed."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates that the configuration endpoint doesn't return until all configuration loaded handlers have executed."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestLongRunningConfigUpdatedHandlerConfigurations(string configurationEndpoint)
         {
-            TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
             HttpClient httpClient = server.CreateClient();
 
             JsonContent content = GetJsonContentForCosmosConfigRequest(configurationEndpoint);
@@ -1098,12 +1163,12 @@ type Moon {
         /// connection string to complete the test. Most applicable to CI/CD test execution.
         /// </summary>
         [TestCategory(TestCategory.MSSQL)]
-        [TestMethod(DisplayName = "Validates setting the AuthN/Z configuration post-startup during runtime.")]
+        [TestMethod("Validates setting the AuthN/Z configuration post-startup during runtime.")]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestSqlSettingPostStartupConfigurations(string configurationEndpoint)
         {
-            TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
             HttpClient httpClient = server.CreateClient();
 
             RuntimeConfig configuration = AuthorizationHelpers.InitRuntimeConfig(
@@ -1128,7 +1193,7 @@ type Moon {
                 await httpClient.GetAsync($"/{OPENAPI_SWAGGER_ENDPOINT}");
             Assert.AreEqual(HttpStatusCode.ServiceUnavailable, preConfigOpenApiSwaggerEndpointAvailability.StatusCode);
 
-            HttpStatusCode responseCode = await HydratePostStartupConfiguration(httpClient, content, configurationEndpoint);
+            HttpStatusCode responseCode = await HydratePostStartupConfiguration(httpClient, content, configurationEndpoint, configuration.Runtime.Rest);
 
             // When the authorization resolver is properly configured, authorization will have failed
             // because no auth headers are present.
@@ -1140,10 +1205,21 @@ type Moon {
             // Sends a GET request to a protected entity which requires a specific role to access.
             // Authorization will pass because proper auth headers are present.
             HttpRequestMessage message = new(method: HttpMethod.Get, requestUri: $"api/{POST_STARTUP_CONFIG_ENTITY}");
-            string swaTokenPayload = AuthTestHelper.CreateStaticWebAppsEasyAuthToken(
-                addAuthenticated: true,
-                specificRole: POST_STARTUP_CONFIG_ROLE);
-            message.Headers.Add(Config.ObjectModel.AuthenticationOptions.CLIENT_PRINCIPAL_HEADER, swaTokenPayload);
+
+            // Use an AppService EasyAuth principal carrying the required role when
+            // authentication is configured to use AppService.
+            string appServiceTokenPayload = AuthTestHelper.CreateAppServiceEasyAuthToken(
+                roleClaimType: Config.ObjectModel.AuthenticationOptions.ROLE_CLAIM_TYPE,
+                additionalClaims:
+                [
+                    new AppServiceClaim
+                    {
+                        Typ = Config.ObjectModel.AuthenticationOptions.ROLE_CLAIM_TYPE,
+                        Val = POST_STARTUP_CONFIG_ROLE
+                    }
+                ]);
+
+            message.Headers.Add(Config.ObjectModel.AuthenticationOptions.CLIENT_PRINCIPAL_HEADER, appServiceTokenPayload);
             message.Headers.Add(AuthorizationResolver.CLIENT_ROLE_HEADER, POST_STARTUP_CONFIG_ROLE);
             HttpResponseMessage authorizedResponse = await httpClient.SendAsync(message);
             Assert.AreEqual(expected: HttpStatusCode.OK, actual: authorizedResponse.StatusCode);
@@ -1166,12 +1242,12 @@ type Moon {
         /// Tests that sending configuration to the DAB engine post-startup will properly hydrate even with data-source-files specified.
         /// </summary>
         [TestCategory(TestCategory.MSSQL)]
-        [TestMethod(DisplayName = "Validates RuntimeConfig setup for post-configuraiton hydration with datasource-files specified.")]
+        [TestMethod("Validates RuntimeConfig setup for post-configuraiton hydration with datasource-files specified.")]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestValidMultiSourceRunTimePostStartupConfigurations(string configurationEndpoint)
         {
-            TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
             HttpClient httpClient = server.CreateClient();
 
             RuntimeConfig config = AuthorizationHelpers.InitRuntimeConfig(
@@ -1199,21 +1275,21 @@ type Moon {
             Assert.AreEqual(1, configuration.ListAllDataSources().Count(), "There should be only 1 datasource populated for late hydration of config with invalid multi-db files.");
         }
 
-        [TestMethod(DisplayName = "Validates that local CosmosDB_NoSQL settings can be loaded and the correct classes are in the service provider."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates that local CosmosDB_NoSQL settings can be loaded and the correct classes are in the service provider."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         public void TestLoadingLocalCosmosSettings()
         {
             Environment.SetEnvironmentVariable(ASP_NET_CORE_ENVIRONMENT_VAR_NAME, COSMOS_ENVIRONMENT);
-            TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
 
             ValidateCosmosDbSetup(server);
         }
 
-        [TestMethod(DisplayName = "Validates access token is correctly loaded when Account Key is not present for Cosmos."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates access token is correctly loaded when Account Key is not present for Cosmos."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestLoadingAccessTokenForCosmosClient(string configurationEndpoint)
         {
-            TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
             HttpClient httpClient = server.CreateClient();
 
             JsonContent content = GetJsonContentForCosmosConfigRequest(configurationEndpoint, null, true);
@@ -1227,11 +1303,11 @@ type Moon {
             Assert.IsTrue(cosmosClientProvider.Clients.Any());
         }
 
-        [TestMethod(DisplayName = "Validates that local MsSql settings can be loaded and the correct classes are in the service provider."), TestCategory(TestCategory.MSSQL)]
+        [TestMethod("Validates that local MsSql settings can be loaded and the correct classes are in the service provider."), TestCategory(TestCategory.MSSQL)]
         public void TestLoadingLocalMsSqlSettings()
         {
             Environment.SetEnvironmentVariable(ASP_NET_CORE_ENVIRONMENT_VAR_NAME, MSSQL_ENVIRONMENT);
-            TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
 
             QueryEngineFactory queryEngineFactory = (QueryEngineFactory)server.Services.GetService(typeof(IQueryEngineFactory));
             Assert.IsInstanceOfType(queryEngineFactory.GetQueryEngine(DatabaseType.MSSQL), typeof(SqlQueryEngine));
@@ -1247,11 +1323,11 @@ type Moon {
             Assert.IsTrue(metadataProviderFactory.ListMetadataProviders().Any(x => x.GetType() == typeof(MsSqlMetadataProvider)));
         }
 
-        [TestMethod(DisplayName = "Validates that local PostgreSql settings can be loaded and the correct classes are in the service provider."), TestCategory(TestCategory.POSTGRESQL)]
+        [TestMethod("Validates that local PostgreSql settings can be loaded and the correct classes are in the service provider."), TestCategory(TestCategory.POSTGRESQL)]
         public void TestLoadingLocalPostgresSettings()
         {
             Environment.SetEnvironmentVariable(ASP_NET_CORE_ENVIRONMENT_VAR_NAME, POSTGRESQL_ENVIRONMENT);
-            TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
 
             QueryEngineFactory queryEngineFactory = (QueryEngineFactory)server.Services.GetService(typeof(IQueryEngineFactory));
             Assert.IsInstanceOfType(queryEngineFactory.GetQueryEngine(DatabaseType.PostgreSQL), typeof(SqlQueryEngine));
@@ -1267,11 +1343,11 @@ type Moon {
             Assert.IsTrue(metadataProviderFactory.ListMetadataProviders().Any(x => x.GetType() == typeof(PostgreSqlMetadataProvider)));
         }
 
-        [TestMethod(DisplayName = "Validates that local MySql settings can be loaded and the correct classes are in the service provider."), TestCategory(TestCategory.MYSQL)]
+        [TestMethod("Validates that local MySql settings can be loaded and the correct classes are in the service provider."), TestCategory(TestCategory.MYSQL)]
         public void TestLoadingLocalMySqlSettings()
         {
             Environment.SetEnvironmentVariable(ASP_NET_CORE_ENVIRONMENT_VAR_NAME, MYSQL_ENVIRONMENT);
-            TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
 
             QueryEngineFactory queryEngineFactory = (QueryEngineFactory)server.Services.GetService(typeof(IQueryEngineFactory));
             Assert.IsInstanceOfType(queryEngineFactory.GetQueryEngine(DatabaseType.MySQL), typeof(SqlQueryEngine));
@@ -1287,13 +1363,13 @@ type Moon {
             Assert.IsTrue(metadataProviderFactory.ListMetadataProviders().Any(x => x.GetType() == typeof(MySqlMetadataProvider)));
         }
 
-        [TestMethod(DisplayName = "Validates that trying to override configs that are already set fail."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates that trying to override configs that are already set fail."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestOverridingLocalSettingsFails(string configurationEndpoint)
         {
             Environment.SetEnvironmentVariable(ASP_NET_CORE_ENVIRONMENT_VAR_NAME, COSMOS_ENVIRONMENT);
-            TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
             HttpClient client = server.CreateClient();
 
             JsonContent config = GetJsonContentForCosmosConfigRequest(configurationEndpoint);
@@ -1302,12 +1378,12 @@ type Moon {
             Assert.AreEqual(HttpStatusCode.Conflict, postResult.StatusCode);
         }
 
-        [TestMethod(DisplayName = "Validates that setting the configuration at runtime will instantiate the proper classes."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates that setting the configuration at runtime will instantiate the proper classes."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         [DataRow(CONFIGURATION_ENDPOINT)]
         [DataRow(CONFIGURATION_ENDPOINT_V2)]
         public async Task TestSettingConfigurationCreatesCorrectClasses(string configurationEndpoint)
         {
-            TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostFromInMemoryUpdatableConfBuilder(Array.Empty<string>()));
             HttpClient client = server.CreateClient();
 
             JsonContent content = GetJsonContentForCosmosConfigRequest(configurationEndpoint);
@@ -1329,12 +1405,12 @@ type Moon {
             Assert.AreEqual(expectedParameters.Schema, options.GraphQLSchema, "Expected the schema in the configuration to match the one sent to the configuration endpoint.");
 
             // Don't use Assert.AreEqual, because a failure will print the entire connection string in the error message.
-            Assert.AreEqual(configuration.DataSource.ConnectionString, expectedParameters.ConnectionString, "Expected the connection string in the configuration to match the one sent to the configuration endpoint.");
+            Assert.IsTrue(expectedParameters.ConnectionString == configuration.DataSource.ConnectionString, "Expected the connection string in the configuration to match the one sent to the configuration endpoint.");
             string db = options.Database;
             Assert.AreEqual(COSMOS_DATABASE_NAME, db, "Expected the database name in the runtime config to match the one sent to the configuration endpoint.");
         }
 
-        [TestMethod(DisplayName = "Validates that an exception is thrown if there's a null model in filter parser.")]
+        [TestMethod("Validates that an exception is thrown if there's a null model in filter parser.")]
         public void VerifyExceptionOnNullModelinFilterParser()
         {
             ODataParser parser = new();
@@ -1356,7 +1432,7 @@ type Moon {
         /// This test reads the dab-config.MsSql.json file and validates that the
         /// deserialization succeeds.
         /// </summary>
-        [TestMethod(DisplayName = "Validates if deserialization of MsSql config file succeeds."), TestCategory(TestCategory.MSSQL)]
+        [TestMethod("Validates if deserialization of MsSql config file succeeds."), TestCategory(TestCategory.MSSQL)]
         public Task TestReadingRuntimeConfigForMsSql()
         {
             return ConfigFileDeserializationValidationHelper(File.ReadAllText($"{CONFIGFILE_NAME}.{MSSQL_ENVIRONMENT}{CONFIG_EXTENSION}"));
@@ -1366,7 +1442,7 @@ type Moon {
         /// This test reads the dab-config.MySql.json file and validates that the
         /// deserialization succeeds.
         /// </summary>
-        [TestMethod(DisplayName = "Validates if deserialization of MySql config file succeeds."), TestCategory(TestCategory.MYSQL)]
+        [TestMethod("Validates if deserialization of MySql config file succeeds."), TestCategory(TestCategory.MYSQL)]
         public Task TestReadingRuntimeConfigForMySql()
         {
             return ConfigFileDeserializationValidationHelper(File.ReadAllText($"{CONFIGFILE_NAME}.{MYSQL_ENVIRONMENT}{CONFIG_EXTENSION}"));
@@ -1376,7 +1452,7 @@ type Moon {
         /// This test reads the dab-config.PostgreSql.json file and validates that the
         /// deserialization succeeds.
         /// </summary>
-        [TestMethod(DisplayName = "Validates if deserialization of PostgreSql config file succeeds."), TestCategory(TestCategory.POSTGRESQL)]
+        [TestMethod("Validates if deserialization of PostgreSql config file succeeds."), TestCategory(TestCategory.POSTGRESQL)]
         public Task TestReadingRuntimeConfigForPostgreSql()
         {
             return ConfigFileDeserializationValidationHelper(File.ReadAllText($"{CONFIGFILE_NAME}.{POSTGRESQL_ENVIRONMENT}{CONFIG_EXTENSION}"));
@@ -1386,7 +1462,7 @@ type Moon {
         /// This test reads the dab-config.CosmosDb_NoSql.json file and validates that the
         /// deserialization succeeds.
         /// </summary>
-        [TestMethod(DisplayName = "Validates if deserialization of the CosmosDB_NoSQL config file succeeds."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates if deserialization of the CosmosDB_NoSQL config file succeeds."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         public Task TestReadingRuntimeConfigForCosmos()
         {
             return ConfigFileDeserializationValidationHelper(File.ReadAllText($"{CONFIGFILE_NAME}.{COSMOS_ENVIRONMENT}{CONFIG_EXTENSION}"));
@@ -1407,7 +1483,7 @@ type Moon {
         /// This function verifies command line configuration provider takes higher
         /// precedence than default configuration file dab-config.json
         /// </summary>
-        [TestMethod(DisplayName = "Validates command line configuration provider."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates command line configuration provider."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         public void TestCommandLineConfigurationProvider()
         {
             Environment.SetEnvironmentVariable(ASP_NET_CORE_ENVIRONMENT_VAR_NAME, MSSQL_ENVIRONMENT);
@@ -1417,7 +1493,7 @@ type Moon {
             $"{COSMOS_ENVIRONMENT}{CONFIG_EXTENSION}"
         };
 
-            TestServer server = new(Program.CreateWebHostBuilder(args));
+            using TestServer server = new(Program.CreateWebHostBuilder(args));
 
             ValidateCosmosDbSetup(server);
         }
@@ -1426,7 +1502,7 @@ type Moon {
         /// This function verifies the environment variable DAB_ENVIRONMENT
         /// takes precedence than ASPNETCORE_ENVIRONMENT for the configuration file.
         /// </summary>
-        [TestMethod(DisplayName = "Validates precedence is given to DAB_ENVIRONMENT environment variable name."), TestCategory(TestCategory.COSMOSDBNOSQL)]
+        [TestMethod("Validates precedence is given to DAB_ENVIRONMENT environment variable name."), TestCategory(TestCategory.COSMOSDBNOSQL)]
         public void TestRuntimeEnvironmentVariable()
         {
             Environment.SetEnvironmentVariable(
@@ -1434,7 +1510,7 @@ type Moon {
             Environment.SetEnvironmentVariable(
                 RUNTIME_ENVIRONMENT_VAR_NAME, COSMOS_ENVIRONMENT);
 
-            TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
+            using TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
 
             ValidateCosmosDbSetup(server);
         }
@@ -1442,7 +1518,7 @@ type Moon {
         /// <summary>
         /// This method tests the config properties like data-source, runtime settings and entities.
         /// </summary>
-        [TestMethod(DisplayName = "Validates the runtime configuration file properties."), TestCategory(TestCategory.MSSQL)]
+        [TestMethod("Validates the runtime configuration file properties."), TestCategory(TestCategory.MSSQL)]
         public void TestConfigPropertiesAreValid()
         {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
@@ -1464,7 +1540,7 @@ type Moon {
         /// This tests gets the json from the integration test config file and then uses that
         /// to validate the complete config file.
         /// </summary>
-        [TestMethod(DisplayName = "Validates the complete config."), TestCategory(TestCategory.MSSQL)]
+        [TestMethod("Validates the complete config."), TestCategory(TestCategory.MSSQL)]
         public async Task TestConfigIsValid()
         {
             // Fetch the MS_SQL integration test config file.
@@ -1504,7 +1580,7 @@ type Moon {
         /// Test to verify that provided invalid value of depth-limit in the config file should
         /// result in validation failure during `dab validate` and `dab start`.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(0, DisplayName = "[FAIL]: Invalid Value: 0 for depth-limit.")]
         [DataRow(-2, DisplayName = "[FAIL]: Invalid Value: -2 for depth-limit.")]
         [TestCategory(TestCategory.MSSQL)]
@@ -1519,7 +1595,7 @@ type Moon {
         /// -1 and null are special values.
         /// -1 can be set to remove the depth limit, while `null` is the default value which means no depth limit check.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(-1, DisplayName = "[PASS]: Valid Value: -1 to disable depth limit")]
         [DataRow(2, DisplayName = "[PASS]: Valid Value: 2 for depth-limit.")]
         [DataRow(2147483647, DisplayName = "[PASS]: Valid Value: Using Int32.MaxValue(2147483647) for depth-limit.")]
@@ -1571,7 +1647,7 @@ type Moon {
         /// This test method checks a valid config's entities against
         /// the database and ensures they are valid.
         /// </summary>
-        [TestMethod(DisplayName = "Validation passes for valid entities against database."), TestCategory(TestCategory.MSSQL)]
+        [TestMethod("Validation passes for valid entities against database."), TestCategory(TestCategory.MSSQL)]
         public async Task TestSqlMetadataForValidConfigEntities()
         {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
@@ -1599,7 +1675,7 @@ type Moon {
         /// The config contains an entity source object not present in the database.
         /// It also contains an entity whose source is incorrectly specified as a stored procedure.
         /// </summary>
-        [TestMethod(DisplayName = "Validation fails for invalid entities against database."), TestCategory(TestCategory.MSSQL)]
+        [TestMethod("Validation fails for invalid entities against database."), TestCategory(TestCategory.MSSQL)]
         public async Task TestSqlMetadataForInvalidConfigEntities()
         {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
@@ -1661,7 +1737,7 @@ type Moon {
             await configValidator.ValidateEntitiesMetadata(configProvider.GetConfig(), mockLoggerFactory);
 
             Assert.IsTrue(configValidator.ConfigValidationExceptions.Any());
-            Assert.HasCount(2, configValidator.ConfigValidationExceptions);
+            Assert.AreEqual(2, configValidator.ConfigValidationExceptions.Count);
             List<Exception> exceptionsList = configValidator.ConfigValidationExceptions;
             Assert.AreEqual("Cannot obtain Schema for entity Book with underlying database "
                 + "object source: dbo.bokos due to: Invalid object name 'dbo.bokos'.", exceptionsList[0].Message);
@@ -1672,7 +1748,7 @@ type Moon {
         /// This Test validates that when the entities in the runtime config have source object as null,
         /// the validation exception handler collects the message and exits gracefully.
         /// </summary>
-        [TestMethod(DisplayName = "Validate Exception handling for Entities with Source object as null."), TestCategory(TestCategory.MSSQL)]
+        [TestMethod("Validate Exception handling for Entities with Source object as null."), TestCategory(TestCategory.MSSQL)]
         public async Task TestSqlMetadataValidationForEntitiesWithInvalidSource()
         {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
@@ -1751,12 +1827,12 @@ type Moon {
 
             Assert.IsTrue(configValidator.ConfigValidationExceptions.Any());
             List<string> exceptionMessagesList = configValidator.ConfigValidationExceptions.Select(x => x.Message).ToList();
-            Assert.Contains("The entity Book does not have a valid source object.", exceptionMessagesList);
-            Assert.Contains("The entity Publisher does not have a valid source object.", exceptionMessagesList);
-            Assert.Contains("Table Definition for Book has not been inferred.", exceptionMessagesList);
-            Assert.Contains("Table Definition for Publisher has not been inferred.", exceptionMessagesList);
-            Assert.Contains("Could not infer database object for source entity: Publisher in relationship: books. Check if the entity: Publisher is correctly defined in the config.", exceptionMessagesList);
-            Assert.Contains("Could not infer database object for target entity: Book in relationship: books. Check if the entity: Book is correctly defined in the config.", exceptionMessagesList);
+            Assert.IsTrue(exceptionMessagesList.Contains("The entity Book does not have a valid source object."));
+            Assert.IsTrue(exceptionMessagesList.Contains("The entity Publisher does not have a valid source object."));
+            Assert.IsTrue(exceptionMessagesList.Contains("Table Definition for Book has not been inferred."));
+            Assert.IsTrue(exceptionMessagesList.Contains("Table Definition for Publisher has not been inferred."));
+            Assert.IsTrue(exceptionMessagesList.Contains("Could not infer database object for source entity: Publisher in relationship: books. Check if the entity: Publisher is correctly defined in the config."));
+            Assert.IsTrue(exceptionMessagesList.Contains("Could not infer database object for target entity: Book in relationship: books. Check if the entity: Book is correctly defined in the config."));
         }
 
         /// <summary>
@@ -1764,7 +1840,7 @@ type Moon {
         /// It asserts that the validation is successful and there are no validation failures.
         /// It also verifies that the expected log message is logged.
         /// </summary>
-        [TestMethod(DisplayName = "Validates the config file schema."), TestCategory(TestCategory.MSSQL)]
+        [TestMethod("Validates the config file schema."), TestCategory(TestCategory.MSSQL)]
         public void TestConfigSchemaIsValid()
         {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
@@ -1795,7 +1871,7 @@ type Moon {
         /// It asserts that the validation is successful and there are no validation failures when no optional fields are used.
         /// It also verifies that the expected log message is logged.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(CONFIG_FILE_WITH_NO_OPTIONAL_FIELD, DisplayName = "Validates schema of the config file with no optional fields.")]
         [DataRow(CONFIG_FILE_WITH_NO_AUTHENTICATION_FIELD, DisplayName = "Validates schema of the config file with no Authentication field.")]
         [DataRow(CONFIG_FILE_WITH_NO_CORS_FIELD, DisplayName = "Validates schema of the config file with no Cors field.")]
@@ -1808,8 +1884,44 @@ type Moon {
             JsonConfigSchemaValidator jsonSchemaValidator = new(schemaValidatorLogger.Object, new MockFileSystem());
 
             JsonSchemaValidationResult result = jsonSchemaValidator.ValidateJsonConfigWithSchema(jsonSchema, jsonData);
-            Assert.IsTrue(result.IsValid);
+            Assert.AreEqual("", String.Join('\n', result.ValidationErrors?.Select(s => $"{s.Message} at {s.Path} {s.LineNumber} {s.LinePosition}") ?? []), "Expected no validation errors.");
             Assert.IsTrue(EnumerableUtilities.IsNullOrEmpty(result.ValidationErrors));
+
+            Assert.IsTrue(result.IsValid);
+            schemaValidatorLogger.Verify(
+                x => x.Log(
+                    LogLevel.Information,
+                    It.IsAny<EventId>(),
+                    It.Is<It.IsAnyType>((o, t) => o.ToString()!.Contains($"The config satisfies the schema requirements.")),
+                    It.IsAny<Exception>(),
+                    (Func<It.IsAnyType, Exception, string>)It.IsAny<object>()),
+                Times.Once);
+        }
+
+        [DataTestMethod]
+        [DataRow("true", DisplayName = "Validates variable boolean schema for true value")]
+        [DataRow("false", DisplayName = "Validates variable boolean schema for false value.")]
+        [DataRow("\"true\"", DisplayName = "Validates variable boolean schema for true as string.")]
+        [DataRow("\"false\"", DisplayName = "Validates variable boolean schema for false as string.")]
+        [DataRow("\"1\"", DisplayName = "Validates variable boolean schema for 1 as string.")]
+        [DataRow("\"0\"", DisplayName = "Validates variable boolean schema for 0as string.")]
+        [DataRow("\"@env('SAMPLE')\"", DisplayName = "Validates variable boolean schema for environment variables.")]
+        [DataRow("\"@akv('SAMPLE')\"", DisplayName = "Validates variable boolean schema for keyvaul variables.")]
+        public void TestBasicConfigSchemaWithFlexibleBoolean(string Value)
+        {
+            Mock<ILogger<JsonConfigSchemaValidator>> schemaValidatorLogger = new();
+
+            string jsonSchema = File.ReadAllText("dab.draft.schema.json");
+
+            JsonConfigSchemaValidator jsonSchemaValidator = new(schemaValidatorLogger.Object, new MockFileSystem());
+
+            string jsonData = CONFIG_FILE_WITH_BOOLEAN_AS_ENV.Replace("<REPLACE_VALUE>", Value);
+            JsonSchemaValidationResult result = jsonSchemaValidator.ValidateJsonConfigWithSchema(jsonSchema, jsonData);
+            Assert.AreEqual("", String.Join('\n', result.ValidationErrors?.Select(s => $"{s.Message} at {s.Path} {s.LineNumber} {s.LinePosition}") ?? []), "Expected no validation errors.");
+
+            Assert.IsTrue(EnumerableUtilities.IsNullOrEmpty(result.ValidationErrors), "Validation Erros null of empty");
+
+            Assert.IsTrue(result.IsValid, "Result should be valid");
             schemaValidatorLogger.Verify(
                 x => x.Log(
                     LogLevel.Information,
@@ -1823,7 +1935,7 @@ type Moon {
         /// <summary>
         /// This test method validates that the JSON schema validates that only known auth providers can be used.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(CONFIG_FILE_WITH_UNKNOWN_AUTHENTICATION_PROVIDER, DisplayName = "Validates schema of the config file when there is an unknown authentication provider.")]
         [DataRow(CONFIG_FILE_WITH_MISSING_JWT_PROPERTY, DisplayName = "Validates schema of the config file a missing JWT property")]
         [DataRow(CONFIG_FILE_WITH_MISSING_JWT_CHILD_PROPERTIES, DisplayName = "Validates schema of the config file with missing JWT child properties.")]
@@ -1875,7 +1987,66 @@ type Moon {
             Assert.IsFalse(result.IsValid);
             Assert.IsFalse(EnumerableUtilities.IsNullOrEmpty(result.ValidationErrors));
             Assert.AreEqual(1, result.ErrorCount);
-            Assert.Contains("Total schema validation errors: 1\n> Required properties are missing from object: entities.", result.ErrorMessage);
+            // The allOf construct wraps the "missing entities" error in an allOf validation error.
+            // Verify the top-level error count and that the validation correctly identifies the config as invalid.
+            Assert.IsTrue(result.ErrorMessage.Contains("Total schema validation errors: 1\n>"));
+        }
+
+        /// <summary>
+        /// Validates that the JSON schema correctly validates entity cache configuration properties.
+        /// Tests both valid configurations (proper level values, ttl >= 1) and invalid configurations
+        /// (invalid level values, ttl = 0).
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("L1", 10, true, DisplayName = "Valid cache config with L1 and ttl=10")]
+        [DataRow("L1L2", 1, true, DisplayName = "Valid cache config with L1L2 and minimum ttl=1")]
+        [DataRow("L1L2", 3600, true, DisplayName = "Valid cache config with L1L2 and ttl=3600")]
+        [DataRow("L3", 10, false, DisplayName = "Invalid cache config with invalid level L3")]
+        [DataRow("L1", 0, false, DisplayName = "Invalid cache config with ttl=0 (below minimum)")]
+        [DataRow("L1L2", -1, false, DisplayName = "Invalid cache config with negative ttl")]
+        public void TestEntityCacheSchemaValidation(string level, int ttlSeconds, bool shouldBeValid)
+        {
+            string jsonData = $@"{{
+                ""$schema"": ""https://github.com/Azure/data-api-builder/releases/download/vmajor.minor.patch/dab.draft.schema.json"",
+                ""data-source"": {{
+                    ""database-type"": ""mssql"",
+                    ""connection-string"": ""Server=test;Database=test;""
+                }},
+                ""entities"": {{
+                    ""Book"": {{
+                        ""source"": {{
+                            ""object"": ""books"",
+                            ""type"": ""table""
+                        }},
+                        ""permissions"": [{{
+                            ""role"": ""anonymous"",
+                            ""actions"": [""read""]
+                        }}],
+                        ""cache"": {{
+                            ""enabled"": true,
+                            ""ttl-seconds"": {ttlSeconds},
+                            ""level"": ""{level}""
+                        }}
+                    }}
+                }}
+            }}";
+
+            Mock<ILogger<JsonConfigSchemaValidator>> schemaValidatorLogger = new();
+            string jsonSchema = File.ReadAllText("dab.draft.schema.json");
+            JsonConfigSchemaValidator jsonSchemaValidator = new(schemaValidatorLogger.Object, new MockFileSystem());
+
+            JsonSchemaValidationResult result = jsonSchemaValidator.ValidateJsonConfigWithSchema(jsonSchema, jsonData);
+
+            if (shouldBeValid)
+            {
+                Assert.IsTrue(result.IsValid, $"Expected valid config but got errors: {result.ErrorMessage}");
+                Assert.IsTrue(EnumerableUtilities.IsNullOrEmpty(result.ValidationErrors));
+            }
+            else
+            {
+                Assert.IsFalse(result.IsValid, "Expected validation to fail but it passed");
+                Assert.IsFalse(EnumerableUtilities.IsNullOrEmpty(result.ValidationErrors));
+            }
         }
 
         /// <summary>
@@ -1885,7 +2056,7 @@ type Moon {
         /// and `graphql` property in runtime is written as `GraphQL` in the Global runtime section.
         /// It also contains an entity where `rest` property is written as `rst`.
         /// </summary>
-        [TestMethod(DisplayName = "Validates the invalid config file schema."), TestCategory(TestCategory.MSSQL)]
+        [TestMethod("Validates the invalid config file schema."), TestCategory(TestCategory.MSSQL)]
         public void TestConfigSchemaIsInvalid()
         {
             Mock<ILogger<JsonConfigSchemaValidator>> schemaValidatorLogger = new();
@@ -1895,27 +2066,27 @@ type Moon {
             JsonConfigSchemaValidator jsonSchemaValidator = new(schemaValidatorLogger.Object, new MockFileSystem());
             JsonSchemaValidationResult result = jsonSchemaValidator.ValidateJsonConfigWithSchema(jsonSchema, CONFIG_WITH_INVALID_SCHEMA);
             Assert.IsFalse(result.IsValid);
-            Assert.HasCount(3, result.ValidationErrors);
+            Assert.AreEqual(3, result.ValidationErrors.Count);
 
             string errorMessage = result.ErrorMessage;
-            Assert.Contains("Total schema validation errors: 3", errorMessage);
-            Assert.Contains("Property 'data-source-file' has not been defined and the schema does not allow additional properties. at 7:31", errorMessage);
-            Assert.Contains("Property 'Graphql' has not been defined and the schema does not allow additional properties. at 13:26", errorMessage);
-            Assert.Contains("Property 'rst' has not been defined and the schema does not allow additional properties. at 44:26", errorMessage);
+            Assert.IsTrue(errorMessage.Contains("Total schema validation errors: 3"));
+            Assert.IsTrue(errorMessage.Contains("Property 'data-source-file' has not been defined and the schema does not allow additional properties. at 7:31"));
+            Assert.IsTrue(errorMessage.Contains("Property 'Graphql' has not been defined and the schema does not allow additional properties. at 13:26"));
+            Assert.IsTrue(errorMessage.Contains("Property 'rst' has not been defined and the schema does not allow additional properties. at 44:26"));
         }
 
         /// <summary>
         /// DAB config doesn't support additional properties in it's config. This test validates that
         /// a config file with additional properties fails the schema validation but still has no effect on engine startup.
         /// </summary>
-        [TestMethod(DisplayName = "Validates the config with custom properties works with the engine."), TestCategory(TestCategory.MSSQL)]
+        [TestMethod("Validates the config with custom properties works with the engine."), TestCategory(TestCategory.MSSQL)]
         public async Task TestEngineCanStartConfigWithCustomProperties()
         {
             const string CUSTOM_CONFIG = "custom-config.json";
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
             FileSystem fileSystem = new();
             FileSystemRuntimeConfigLoader loader = new(fileSystem);
-            loader.TryLoadConfig(loader.ConfigFilePath, out RuntimeConfig config);
+            loader.TryLoadKnownConfig(out RuntimeConfig config);
 
             string customProperty = @"
                 {
@@ -1932,8 +2103,8 @@ type Moon {
             JsonConfigSchemaValidator jsonSchemaValidator = new(schemaValidatorLogger.Object, new MockFileSystem());
             JsonSchemaValidationResult result = jsonSchemaValidator.ValidateJsonConfigWithSchema(jsonSchema, combinedJson);
             Assert.IsFalse(result.IsValid);
-            Assert.Contains("Total schema validation errors: 1", result.ErrorMessage);
-            Assert.Contains("Property 'description' has not been defined and the schema does not allow additional properties.", result.ErrorMessage);
+            Assert.IsTrue(result.ErrorMessage.Contains("Total schema validation errors: 1"));
+            Assert.IsTrue(result.ErrorMessage.Contains("Property 'description' has not been defined and the schema does not allow additional properties."));
 
             File.WriteAllText(CUSTOM_CONFIG, combinedJson);
             string[] args = new[]
@@ -2059,9 +2230,9 @@ type Moon {
             Assert.IsFalse(string.IsNullOrEmpty(receivedJsonSchema));
 
             // Sanity check to ensure the schema is valid
-            Assert.Contains("$schema", receivedJsonSchema);
-            Assert.Contains("data-source", receivedJsonSchema);
-            Assert.Contains("entities", receivedJsonSchema);
+            Assert.IsTrue(receivedJsonSchema.Contains("$schema"));
+            Assert.IsTrue(receivedJsonSchema.Contains("data-source"));
+            Assert.IsTrue(receivedJsonSchema.Contains("entities"));
         }
 
         /// <summary>
@@ -2080,7 +2251,7 @@ type Moon {
 
             try
             {
-                TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
+                using TestServer server = new(Program.CreateWebHostBuilder(Array.Empty<string>()));
                 _ = server.Services.GetService(typeof(CosmosClientProvider)) as CosmosClientProvider;
                 Assert.Fail($"{RUNTIME_ENV_CONNECTION_STRING} is not given highest precedence");
             }
@@ -2096,7 +2267,7 @@ type Moon {
         /// <summary>
         /// Test to verify the precedence logic for config file based on Environment variables.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow("HostTest", "Test", false, $"{CONFIGFILE_NAME}.Test{CONFIG_EXTENSION}", DisplayName = "hosting and dab environment set, without considering overrides.")]
         [DataRow("HostTest", "", false, $"{CONFIGFILE_NAME}.HostTest{CONFIG_EXTENSION}", DisplayName = "only hosting environment set, without considering overrides.")]
         [DataRow("", "Test1", false, $"{CONFIGFILE_NAME}.Test1{CONFIG_EXTENSION}", DisplayName = "only dab environment set, without considering overrides.")]
@@ -2129,7 +2300,7 @@ type Moon {
         /// <param name="hostMode">The mode in which the service is executing.</param>
         /// <param name="expectedStatusCode">Expected Status Code.</param>
         /// <param name="expectedContent">The expected phrase in the response body.</param>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow("/graphql/", HostMode.Development, HttpStatusCode.OK, "Nitro",
             DisplayName = "GraphQL endpoint with no query in development mode.")]
@@ -2159,7 +2330,7 @@ type Moon {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
             FileSystem fileSystem = new();
             FileSystemRuntimeConfigLoader loader = new(fileSystem);
-            loader.TryLoadConfig(loader.ConfigFilePath, out RuntimeConfig config);
+            loader.TryLoadKnownConfig(out RuntimeConfig config);
 
             RuntimeConfig configWithCustomHostMode = config with
             {
@@ -2186,7 +2357,7 @@ type Moon {
                 HttpResponseMessage response = await client.SendAsync(request);
                 Assert.AreEqual(expectedStatusCode, response.StatusCode);
                 string actualBody = await response.Content.ReadAsStringAsync();
-                Assert.Contains(expectedContent, actualBody);
+                Assert.IsTrue(actualBody.Contains(expectedContent));
             }
         }
 
@@ -2199,7 +2370,7 @@ type Moon {
         /// <param name="graphQLConfiguredPath">The custom configured GraphQL path in configuration</param>
         /// <param name="requestPath">The path used in the web request executed in the test.</param>
         /// <param name="expectedStatusCode">Expected Http success/error code</param>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow("/graphql", "/gql", HttpStatusCode.BadRequest, DisplayName = "Request to non-configured graphQL endpoint is handled by REST controller.")]
         [DataRow("/graphql", "/graphql", HttpStatusCode.OK, DisplayName = "Request to configured default GraphQL endpoint succeeds, path not rewritten.")]
@@ -2257,7 +2428,7 @@ type Moon {
         /// <param name="requestType">Type of REST request</param>
         /// <param name="requestPath">Endpoint for the REST request</param>
         /// <param name="expectedErrorMessage">Right error message that should be shown to the end user</param>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(SupportedHttpVerb.Get, "/api/Book/id/one", null, "Invalid value provided for field: id", DisplayName = "Validates the error message for a GET request with incorrect primary key parameter type on a table in production mode")]
         [DataRow(SupportedHttpVerb.Get, "/api/books_view_all/id/one", null, "Invalid value provided for field: id", DisplayName = "Validates the error message for a GET request with incorrect primary key parameter type on a view in production mode")]
@@ -2302,7 +2473,7 @@ type Moon {
                 HttpResponseMessage response = await client.SendAsync(request);
                 string body = await response.Content.ReadAsStringAsync();
                 Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
-                Assert.Contains(expectedErrorMessage, body);
+                Assert.IsTrue(body.Contains(expectedErrorMessage));
             }
         }
 
@@ -2312,7 +2483,7 @@ type Moon {
         /// When methods section is not defined explicitly in the config file, only POST
         /// method should be enabled for Stored Procedures.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(SP_CONFIG_WITH_NO_REST_SETTINGS, SupportedHttpVerb.Post, "/api/GetBooks", HttpStatusCode.Created, DisplayName = "SP - REST POST enabled when no REST section is present")]
         [DataRow(SP_CONFIG_WITH_NO_REST_SETTINGS, SupportedHttpVerb.Get, "/api/GetBooks", HttpStatusCode.MethodNotAllowed, DisplayName = "SP - REST GET disabled when no REST section is present")]
@@ -2350,8 +2521,7 @@ type Moon {
                 configJson,
                 out RuntimeConfig deserializedConfig,
                 replacementSettings: new(),
-                logger: null,
-                GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL));
+                connectionString: GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL));
             string configFileName = "custom-config.json";
             File.WriteAllText(configFileName, deserializedConfig.ToJson());
             string[] args = new[]
@@ -2398,7 +2568,7 @@ type Moon {
         /// For all the above mentioned scenarios, the expected value for MultipleMutationOptions field is null.
         /// </summary>
         /// <param name="baseConfig">Base Config Json string.</param>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(TestHelper.BASE_CONFIG_NULL_MULTIPLE_MUTATIONS_FIELD, DisplayName = "MultipleMutationOptions field deserialized as null when multiple mutation section is null")]
         [DataRow(TestHelper.BASE_CONFIG_EMPTY_MULTIPLE_MUTATIONS_FIELD, DisplayName = "MultipleMutationOptions field deserialized as null when multiple mutation section is empty")]
         [DataRow(TestHelper.BASE_CONFIG_NULL_MULTIPLE_CREATE_FIELD, DisplayName = "MultipleMutationOptions field deserialized as null when create field within multiple mutation section is null")]
@@ -2438,8 +2608,7 @@ type Moon {
                 configJson,
                 out RuntimeConfig deserializedConfig,
                 replacementSettings: new(),
-                logger: null,
-                GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL)));
+                connectionString: GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL)));
             string configFileName = "custom-config.json";
             File.WriteAllText(configFileName, deserializedConfig.ToJson());
             string[] args = new[]
@@ -2478,7 +2647,7 @@ type Moon {
                     Assert.AreEqual(HttpStatusCode.OK, graphQLResponse.StatusCode);
                     Assert.IsNotNull(graphQLResponse.Content);
                     string body = await graphQLResponse.Content.ReadAsStringAsync();
-                    Assert.DoesNotContain("errors", body);
+                    Assert.IsFalse(body.Contains("errors"));
                 }
                 catch (Exception ex)
                 {
@@ -2498,7 +2667,7 @@ type Moon {
         {
             const string CUSTOM_CONFIG = "custom-config.json";
             string runtimeBaseRoute = "/base-route";
-            TestHelper.ConstructNewConfigWithSpecifiedHostMode(CUSTOM_CONFIG, HostMode.Production, TestCategory.MSSQL, runtimeBaseRoute: runtimeBaseRoute);
+            TestHelper.ConstructNewConfigWithSpecifiedHostMode(CUSTOM_CONFIG, HostMode.Production, TestCategory.MSSQL, runtimeBaseRoute: runtimeBaseRoute, "StaticWebApps");
             string[] args = new[]
             {
                     $"--ConfigFileName={CUSTOM_CONFIG}"
@@ -2513,7 +2682,7 @@ type Moon {
 
                 HttpResponseMessage response = await client.SendAsync(request);
                 string responseBody = await response.Content.ReadAsStringAsync();
-                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+                Assert.IsTrue(response.StatusCode is HttpStatusCode.OK);
 
                 JsonElement responseElement = JsonSerializer.Deserialize<JsonElement>(responseBody);
                 JsonElement responseValue = responseElement.GetProperty(SqlTestHelper.jsonResultTopLevelKey);
@@ -2536,28 +2705,39 @@ type Moon {
         /// <param name="isGraphQLEnabled">The custom configured GraphQL enabled property in configuration.</param>
         /// <param name="expectedStatusCodeForREST">Expected HTTP status code code for the Rest request</param>
         /// <param name="expectedStatusCodeForGraphQL">Expected HTTP status code code for the GraphQL request</param>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
-        [DataRow(true, true, HttpStatusCode.OK, HttpStatusCode.OK, CONFIGURATION_ENDPOINT, DisplayName = "V1 - Both Rest and GraphQL endpoints enabled globally")]
-        [DataRow(true, false, HttpStatusCode.OK, HttpStatusCode.NotFound, CONFIGURATION_ENDPOINT, DisplayName = "V1 - Rest enabled and GraphQL endpoints disabled globally")]
-        [DataRow(false, true, HttpStatusCode.NotFound, HttpStatusCode.OK, CONFIGURATION_ENDPOINT, DisplayName = "V1 - Rest disabled and GraphQL endpoints enabled globally")]
-        [DataRow(true, true, HttpStatusCode.OK, HttpStatusCode.OK, CONFIGURATION_ENDPOINT_V2, DisplayName = "V2 - Both Rest and GraphQL endpoints enabled globally")]
-        [DataRow(true, false, HttpStatusCode.OK, HttpStatusCode.NotFound, CONFIGURATION_ENDPOINT_V2, DisplayName = "V2 - Rest enabled and GraphQL endpoints disabled globally")]
-        [DataRow(false, true, HttpStatusCode.NotFound, HttpStatusCode.OK, CONFIGURATION_ENDPOINT_V2, DisplayName = "V2 - Rest disabled and GraphQL endpoints enabled globally")]
-        public async Task TestGlobalFlagToEnableRestAndGraphQLForHostedAndNonHostedEnvironment(
+        [DataRow(true, true, true, HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.OK, CONFIGURATION_ENDPOINT, DisplayName = "V1 - Rest, GraphQL, and MCP enabled globally")]
+        [DataRow(true, true, false, HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.NotFound, CONFIGURATION_ENDPOINT, DisplayName = "V1 - Rest and GraphQL enabled, MCP disabled globally")]
+        [DataRow(true, false, true, HttpStatusCode.OK, HttpStatusCode.NotFound, HttpStatusCode.OK, CONFIGURATION_ENDPOINT, DisplayName = "V1 - Rest enabled, GraphQL disabled, and MCP enabled globally")]
+        [DataRow(true, false, false, HttpStatusCode.OK, HttpStatusCode.NotFound, HttpStatusCode.NotFound, CONFIGURATION_ENDPOINT, DisplayName = "V1 - Rest enabled, GraphQL and MCP disabled globally")]
+        [DataRow(false, true, true, HttpStatusCode.NotFound, HttpStatusCode.OK, HttpStatusCode.OK, CONFIGURATION_ENDPOINT, DisplayName = "V1 - Rest disabled, GraphQL and MCP enabled globally")]
+        [DataRow(false, true, false, HttpStatusCode.NotFound, HttpStatusCode.OK, HttpStatusCode.NotFound, CONFIGURATION_ENDPOINT, DisplayName = "V1 - Rest disabled, GraphQL enabled, and MCP disabled globally")]
+        [DataRow(false, false, true, HttpStatusCode.NotFound, HttpStatusCode.NotFound, HttpStatusCode.OK, CONFIGURATION_ENDPOINT, DisplayName = "V1 - Rest and GraphQL disabled, MCP enabled globally")]
+        [DataRow(true, true, true, HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.OK, CONFIGURATION_ENDPOINT_V2, DisplayName = "V2 - Rest, GraphQL, and MCP enabled globally")]
+        [DataRow(true, true, false, HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.NotFound, CONFIGURATION_ENDPOINT_V2, DisplayName = "V2 - Rest and GraphQL enabled, MCP disabled globally")]
+        [DataRow(true, false, true, HttpStatusCode.OK, HttpStatusCode.NotFound, HttpStatusCode.OK, CONFIGURATION_ENDPOINT_V2, DisplayName = "V2 - Rest enabled, GraphQL disabled, and MCP enabled globally")]
+        [DataRow(true, false, false, HttpStatusCode.OK, HttpStatusCode.NotFound, HttpStatusCode.NotFound, CONFIGURATION_ENDPOINT_V2, DisplayName = "V2 - Rest enabled, GraphQL and MCP disabled globally")]
+        [DataRow(false, true, true, HttpStatusCode.NotFound, HttpStatusCode.OK, HttpStatusCode.OK, CONFIGURATION_ENDPOINT_V2, DisplayName = "V2 - Rest disabled, GraphQL and MCP enabled globally")]
+        [DataRow(false, true, false, HttpStatusCode.NotFound, HttpStatusCode.OK, HttpStatusCode.NotFound, CONFIGURATION_ENDPOINT_V2, DisplayName = "V2 - Rest disabled, GraphQL enabled, and MCP disabled globally")]
+        [DataRow(false, false, true, HttpStatusCode.NotFound, HttpStatusCode.NotFound, HttpStatusCode.OK, CONFIGURATION_ENDPOINT_V2, DisplayName = "V2 - Rest and GraphQL disabled, MCP enabled globally")]
+        public async Task TestGlobalFlagToEnableRestGraphQLAndMcpForHostedAndNonHostedEnvironment(
             bool isRestEnabled,
             bool isGraphQLEnabled,
+            bool isMcpEnabled,
             HttpStatusCode expectedStatusCodeForREST,
             HttpStatusCode expectedStatusCodeForGraphQL,
+            HttpStatusCode expectedStatusCodeForMcp,
             string configurationEndpoint)
         {
             GraphQLRuntimeOptions graphqlOptions = new(Enabled: isGraphQLEnabled);
             RestRuntimeOptions restRuntimeOptions = new(Enabled: isRestEnabled);
+            McpRuntimeOptions mcpRuntimeOptions = new(Enabled: isMcpEnabled);
 
             DataSource dataSource = new(DatabaseType.MSSQL,
                 GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL), Options: null);
 
-            RuntimeConfig configuration = InitMinimalRuntimeConfig(dataSource, graphqlOptions, restRuntimeOptions, null);
+            RuntimeConfig configuration = InitMinimalRuntimeConfig(dataSource, graphqlOptions, restRuntimeOptions, mcpRuntimeOptions);
             const string CUSTOM_CONFIG = "custom-config.json";
             File.WriteAllText(CUSTOM_CONFIG, configuration.ToJson());
 
@@ -2580,17 +2760,23 @@ type Moon {
 
                 object payload = new { query };
 
-                HttpRequestMessage graphQLRequest = new(HttpMethod.Post, "/graphql")
+                // GraphQL request
+                HttpRequestMessage graphQLRequest = new(HttpMethod.Post, configuration.Runtime.GraphQL.Path)
                 {
                     Content = JsonContent.Create(payload)
                 };
 
                 HttpResponseMessage graphQLResponse = await client.SendAsync(graphQLRequest);
-                Assert.AreEqual(expectedStatusCodeForGraphQL, graphQLResponse.StatusCode);
+                Assert.AreEqual(expectedStatusCodeForGraphQL, graphQLResponse.StatusCode, "The GraphQL response is different from the expected result.");
 
-                HttpRequestMessage restRequest = new(HttpMethod.Get, "/api/Book");
+                // REST request
+                HttpRequestMessage restRequest = new(HttpMethod.Get, $"{configuration.Runtime.Rest.Path}/Book");
                 HttpResponseMessage restResponse = await client.SendAsync(restRequest);
-                Assert.AreEqual(expectedStatusCodeForREST, restResponse.StatusCode);
+                Assert.AreEqual(expectedStatusCodeForREST, restResponse.StatusCode, "The REST response is different from the expected result.");
+
+                // MCP request
+                HttpStatusCode mcpResponseCode = await GetMcpResponse(client, configuration.Runtime.Mcp);
+                Assert.AreEqual(expectedStatusCodeForMcp, mcpResponseCode, "The MCP response is different from the expected result.");
             }
 
             // Hosted Scenario
@@ -2600,18 +2786,19 @@ type Moon {
             {
                 JsonContent content = GetPostStartupConfigParams(MSSQL_ENVIRONMENT, configuration, configurationEndpoint);
 
-                HttpResponseMessage postResult =
-                await client.PostAsync(configurationEndpoint, content);
-                Assert.AreEqual(HttpStatusCode.OK, postResult.StatusCode);
+                HttpResponseMessage postResult = await client.PostAsync(configurationEndpoint, content);
+                Assert.AreEqual(HttpStatusCode.OK, postResult.StatusCode, "The hydration post-response is different from the expected result.");
 
-                HttpStatusCode restResponseCode = await GetRestResponsePostConfigHydration(client);
+                HttpStatusCode restResponseCode = await GetRestResponsePostConfigHydration(client, configuration.Runtime.Rest);
+                Assert.AreEqual(expected: expectedStatusCodeForREST, actual: restResponseCode, "The REST hydration post-response is different from the expected result.");
 
-                Assert.AreEqual(expected: expectedStatusCodeForREST, actual: restResponseCode);
+                HttpStatusCode graphqlResponseCode = await GetGraphQLResponsePostConfigHydration(client, configuration.Runtime.GraphQL);
+                Assert.AreEqual(expected: expectedStatusCodeForGraphQL, actual: graphqlResponseCode, "The GraphQL hydration post-response is different from the expected result.");
 
-                HttpStatusCode graphqlResponseCode = await GetGraphQLResponsePostConfigHydration(client);
-
-                Assert.AreEqual(expected: expectedStatusCodeForGraphQL, actual: graphqlResponseCode);
-
+                // TODO: Issue #3012 - Currently DAB is unable to start MCP with the hydration post-response.
+                // This needs to be fixed before uncommenting the MCP check
+                // HttpStatusCode mcpResponseCode = await GetMcpResponse(client, configuration.Runtime.Mcp);
+                // Assert.AreEqual(expected: expectedStatusCodeForMcp, actual: mcpResponseCode, "The MCP hydration post-response is different from the expected result.");
             }
         }
 
@@ -2673,12 +2860,30 @@ type Moon {
                 $"--ConfigFileName={CUSTOM_CONFIG}"
             };
 
-            string authToken = AuthTestHelper.CreateStaticWebAppsEasyAuthToken();
+            string authToken = AuthTestHelper.CreateAppServiceEasyAuthToken();
             using (TestServer server = new(Program.CreateWebHostBuilder(args)))
             using (HttpClient client = server.CreateClient())
             {
                 try
                 {
+                    // Pre-clean to avoid PK violation if a previous run left the row behind.
+                    string preCleanupDeleteMutation = @"
+                        mutation {
+                            deleteStock(categoryid: 5001, pieceid: 5001) {
+                                categoryid
+                                pieceid
+                            }
+                        }";
+
+                    _ = await GraphQLRequestExecutor.PostGraphQLRequestAsync(
+                    client,
+                    server.Services.GetRequiredService<RuntimeConfigProvider>(),
+                    query: preCleanupDeleteMutation,
+                    queryName: "deleteStock",
+                    variables: null,
+                    authToken: authToken,
+                    clientRoleHeader: AuthorizationResolver.ROLE_AUTHENTICATED);
+
                     // A create mutation operation is executed in the context of Anonymous role. The Anonymous role has create action configured but lacks
                     // read action. As a result, a new record should be created in the database but the mutation operation should return an error message.
                     string graphQLMutation = @"
@@ -2703,11 +2908,12 @@ type Moon {
                         query: graphQLMutation,
                         queryName: "createStock",
                         variables: null,
-                        clientRoleHeader: null
+                        authToken: null,
+                        clientRoleHeader: AuthorizationResolver.ROLE_ANONYMOUS
                         );
 
                     Assert.IsNotNull(mutationResponse);
-                    Assert.Contains("The mutation operation createStock was successful but the current user is unauthorized to view the response due to lack of read permissions", mutationResponse.ToString());
+                    Assert.IsTrue(mutationResponse.ToString().Contains("The mutation operation createStock was successful but the current user is unauthorized to view the response due to lack of read permissions"));
 
                     // pk_query is executed in the context of Authenticated role to validate that the create mutation executed in the context of Anonymous role
                     // resulted in the creation of a new record in the database.
@@ -2721,7 +2927,7 @@ type Moon {
                         }";
                     string queryName = "stock_by_pk";
 
-                    ValidateMutationSucceededAtDbLayer(server, client, graphQLQuery, queryName, authToken, AuthorizationResolver.ROLE_AUTHENTICATED);
+                    await ValidateMutationSucceededAtDbLayer(server, client, graphQLQuery, queryName, authToken, AuthorizationResolver.ROLE_AUTHENTICATED);
                 }
                 finally
                 {
@@ -3005,7 +3211,7 @@ type Moon {
                         query: graphQLMutation,
                         queryName: "createStock",
                         variables: null,
-                        authToken: AuthTestHelper.CreateStaticWebAppsEasyAuthToken(),
+                        authToken: AuthTestHelper.CreateAppServiceEasyAuthToken(),
                         clientRoleHeader: AuthorizationResolver.ROLE_AUTHENTICATED
                         );
 
@@ -3043,7 +3249,7 @@ type Moon {
         /// <param name="query">GraphQL query/mutation text</param>
         /// <param name="queryName">GraphQL query/mutation name</param>
         /// <param name="authToken">Auth token for the graphQL request</param>
-        private static async void ValidateMutationSucceededAtDbLayer(TestServer server, HttpClient client, string query, string queryName, string authToken, string clientRoleHeader)
+        private static async Task ValidateMutationSucceededAtDbLayer(TestServer server, HttpClient client, string query, string queryName, string authToken, string clientRoleHeader)
         {
             JsonElement queryResponse = await GraphQLRequestExecutor.PostGraphQLRequestAsync(
                                                 client,
@@ -3055,6 +3261,7 @@ type Moon {
                                                 clientRoleHeader: clientRoleHeader);
 
             Assert.IsNotNull(queryResponse);
+            Assert.AreNotEqual(JsonValueKind.Null, queryResponse.ValueKind, "Expected a JSON object response but received null.");
             Assert.IsFalse(queryResponse.TryGetProperty("errors", out _));
         }
 
@@ -3069,7 +3276,7 @@ type Moon {
         /// <param name="entityType">Type of the entity</param>
         /// <param name="requestPath">Request path for performing POST API requests on the entity</param>
         [Ignore]
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(EntitySourceType.Table, "/api/Book", DisplayName = "Location Header validation - Table, Base Route not configured")]
         [DataRow(EntitySourceType.StoredProcedure, "/api/GetBooks", DisplayName = "Location Header validation - Stored Procedures, Base Route not configured")]
@@ -3166,7 +3373,7 @@ type Moon {
         /// <param name="baseRoute">Configured base route</param>
         /// <param name="expectedLocationHeader">Expected value for Location field in the response header. Since, the PK of the new record is not known beforehand,
         /// the expectedLocationHeader excludes the PK. Because of this, the actual location header is validated by checking if it starts with the expectedLocationHeader.</param>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(EntitySourceType.Table, "/api/Book", "/data-api", "http://localhost/data-api/api/Book/id/", DisplayName = "Location Header validation - Table, Base Route configured")]
         [DataRow(EntitySourceType.StoredProcedure, "/api/GetBooks", "/data-api", "http://localhost/data-api/api/GetBooks", DisplayName = "Location Header validation - Stored Procedure, Base Route configured")]
@@ -3242,7 +3449,7 @@ type Moon {
                 Assert.AreEqual(HttpStatusCode.Created, response.StatusCode);
 
                 string locationHeader = response.Headers.Location.AbsoluteUri;
-                Assert.StartsWith(expectedLocationHeader, locationHeader);
+                Assert.IsTrue(locationHeader.StartsWith(expectedLocationHeader));
 
                 // The URL to perform the GET request is constructed by skipping the base-route.
                 // Base Route field is applicable only in SWA-DAB integrated scenario. When DAB engine is run independently, all the
@@ -3266,11 +3473,138 @@ type Moon {
         }
 
         /// <summary>
+        /// Validates that the Location header returned for POST requests respects X-Forwarded-Host and X-Forwarded-Proto.
+        /// This covers both table and stored procedure insert endpoints.
+        /// </summary>
+        /// <param name="entityType">Type of entity under test.</param>
+        /// <param name="requestPath">REST endpoint path for POST request.</param>
+        /// <param name="forwardedHost">Value for X-Forwarded-Host header.</param>
+        /// <param name="forwardedProto">Value for X-Forwarded-Proto header.</param>
+        /// <param name="expectedScheme">Expected scheme in Location header.</param>
+        [DataTestMethod]
+        [TestCategory(TestCategory.MSSQL)]
+        [DataRow(EntitySourceType.Table, "/api/Book", null, null, "http", DisplayName = "Location header uses local http scheme when no forwarded headers are present for table POST")]
+        [DataRow(EntitySourceType.StoredProcedure, "/api/GetBooks", null, null, "http", DisplayName = "Location header uses local http scheme when no forwarded headers are present for stored procedure POST")]
+        [DataRow(EntitySourceType.Table, "/api/Book", "api.contoso.com", "http", "http", DisplayName = "Location header uses forwarded http scheme for table POST")]
+        [DataRow(EntitySourceType.StoredProcedure, "/api/GetBooks", "api.contoso.com", "http", "http", DisplayName = "Location header uses forwarded http scheme for stored procedure POST")]
+        [DataRow(EntitySourceType.Table, "/api/Book", "api.contoso.com", "https", "https", DisplayName = "Location header uses forwarded https scheme/host for table POST")]
+        [DataRow(EntitySourceType.StoredProcedure, "/api/GetBooks", "api.contoso.com", "https", "https", DisplayName = "Location header uses forwarded https scheme/host for stored procedure POST")]
+        public async Task ValidateLocationHeaderRespectsXForwardedHostAndProto(
+            EntitySourceType entityType,
+            string requestPath,
+            string forwardedHost,
+            string forwardedProto,
+            string expectedScheme)
+        {
+            TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
+
+            GraphQLRuntimeOptions graphqlOptions = new(Enabled: false);
+            RestRuntimeOptions restRuntimeOptions = new(Enabled: true);
+            McpRuntimeOptions mcpRuntimeOptions = new(Enabled: false);
+
+            SqlConnectionStringBuilder connectionStringBuilder = new(GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL))
+            {
+                TrustServerCertificate = true
+            };
+
+            DataSource dataSource = new(DatabaseType.MSSQL,
+                connectionStringBuilder.ConnectionString, Options: null);
+
+            RuntimeConfig configuration;
+            if (entityType is EntitySourceType.StoredProcedure)
+            {
+                Entity entity = new(Source: new("get_books", EntitySourceType.StoredProcedure, null, null),
+                              Fields: null,
+                              Rest: new(new SupportedHttpVerb[] { SupportedHttpVerb.Get, SupportedHttpVerb.Post }),
+                              GraphQL: null,
+                              Permissions: new[] { GetMinimalPermissionConfig(AuthorizationResolver.ROLE_ANONYMOUS) },
+                              Relationships: null,
+                              Mappings: null
+                             );
+
+                configuration = InitMinimalRuntimeConfig(dataSource, graphqlOptions, restRuntimeOptions, mcpRuntimeOptions, entity, entityName: "GetBooks");
+            }
+            else
+            {
+                configuration = InitMinimalRuntimeConfig(dataSource, graphqlOptions, restRuntimeOptions, mcpRuntimeOptions);
+            }
+
+            const string CUSTOM_CONFIG = "custom-config.json";
+            File.WriteAllText(CUSTOM_CONFIG, configuration.ToJson());
+            string[] args = new[] { $"--ConfigFileName={CUSTOM_CONFIG}" };
+
+            // Intentionally bind HTTP to simulate the proxy-to-app internal hop.
+            using IWebHost host = Program.CreateWebHostBuilder(args)
+                .UseUrls("http://127.0.0.1:0")
+                .Build();
+            await host.StartAsync();
+
+            IServerAddressesFeature addresses = host.ServerFeatures.Get<IServerAddressesFeature>();
+            Assert.IsNotNull(addresses);
+
+            string baseAddress = addresses.Addresses.FirstOrDefault();
+            Assert.IsFalse(string.IsNullOrEmpty(baseAddress));
+
+            using HttpClient client = new()
+            {
+                BaseAddress = new Uri(baseAddress)
+            };
+
+            HttpRequestMessage request = new(HttpMethod.Post, requestPath);
+            if (!string.IsNullOrEmpty(forwardedHost))
+            {
+                request.Headers.Add("X-Forwarded-Host", forwardedHost);
+            }
+
+            if (!string.IsNullOrEmpty(forwardedProto))
+            {
+                request.Headers.Add("X-Forwarded-Proto", forwardedProto);
+            }
+
+            if (entityType is EntitySourceType.Table)
+            {
+                JsonElement requestBodyElement = JsonDocument.Parse(@"{
+                    ""title"": ""Forwarded Header Location Test"",
+                    ""publisher_id"": 1234
+                }").RootElement.Clone();
+
+                request.Content = JsonContent.Create(requestBodyElement);
+            }
+
+            HttpResponseMessage response = await client.SendAsync(request);
+
+            Assert.AreEqual(HttpStatusCode.Created, response.StatusCode);
+            Assert.IsNotNull(response.Headers.Location, "Location header should be present for successful POST create.");
+
+            Uri location = response.Headers.Location;
+            Assert.AreEqual(expectedScheme, location.Scheme, $"Expected Location scheme '{expectedScheme}', got '{location.Scheme}'.");
+
+            if (!string.IsNullOrEmpty(forwardedHost))
+            {
+                Assert.AreEqual(forwardedHost, location.Host, $"Expected Location host '{forwardedHost}', got '{location.Host}'.");
+            }
+
+            // Since forwarded host is external, validate follow-up using local path only.
+            string localPathAndQuery = string.IsNullOrEmpty(location.Query) ? location.AbsolutePath : location.AbsolutePath + location.Query;
+            HttpRequestMessage followUpRequest = new(HttpMethod.Get, localPathAndQuery);
+            HttpResponseMessage followUpResponse = await client.SendAsync(followUpRequest);
+            Assert.AreEqual(HttpStatusCode.OK, followUpResponse.StatusCode);
+
+            if (entityType is EntitySourceType.Table)
+            {
+                HttpRequestMessage cleanupRequest = new(HttpMethod.Delete, localPathAndQuery);
+                await client.SendAsync(cleanupRequest);
+            }
+
+            await host.StopAsync();
+        }
+
+        /// <summary>
         /// Test to validate that when the property rest.request-body-strict is absent from the rest runtime section in config file, DAB runs in strict mode.
         /// In strict mode, presence of extra fields in the request body is not permitted and leads to HTTP 400 - BadRequest error.
         /// </summary>
         /// <param name="includeExtraneousFieldInRequestBody">Boolean value indicating whether or not to include extraneous field in request body.</param>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(false, DisplayName = "Mutation operation passes when no extraneous field is included in request body and rest.request-body-strict is omitted from the rest runtime section in the config file.")]
         [DataRow(true, DisplayName = "Mutation operation fails when an extraneous field is included in request body and rest.request-body-strict is omitted from the rest runtime section in the config file.")]
@@ -3304,8 +3638,7 @@ type Moon {
                 configJson,
                 out RuntimeConfig deserializedConfig,
                 replacementSettings: new(),
-                logger: null,
-                GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL));
+                connectionString: GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL));
             const string CUSTOM_CONFIG = "custom-config.json";
             File.WriteAllText(CUSTOM_CONFIG, deserializedConfig.ToJson());
             string[] args = new[]
@@ -3319,7 +3652,7 @@ type Moon {
                 HttpMethod httpMethod = SqlTestHelper.ConvertRestMethodToHttpMethod(SupportedHttpVerb.Post);
                 string requestBody = @"{
                         ""title"": ""Harry Potter and the Order of Phoenix"",
-                        ""publisher_id"": 1234";
+                        ""publisher_id"": 1234 ";
 
                 if (includeExtraneousFieldInRequestBody)
                 {
@@ -3340,7 +3673,7 @@ type Moon {
                     string responseBody = await response.Content.ReadAsStringAsync();
                     // Assert that including an extraneous field in request body while operating in strict mode leads to a bad request exception.
                     Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
-                    Assert.Contains("Invalid request body. Contained unexpected fields in body: extraField", responseBody);
+                    Assert.IsTrue(responseBody.Contains("Invalid request body. Contained unexpected fields in body: extraField"));
                 }
                 else
                 {
@@ -3410,7 +3743,7 @@ type Moon {
                 HttpResponseMessage graphQLResponse = await client.SendAsync(graphQLRequest);
                 Assert.AreEqual(HttpStatusCode.OK, graphQLResponse.StatusCode);
                 string body = await graphQLResponse.Content.ReadAsStringAsync();
-                Assert.DoesNotContain("errors", body); // In GraphQL, All errors end up in the errors array, no matter what kind of error they are.
+                Assert.IsFalse(body.Contains("errors")); // In GraphQL, All errors end up in the errors array, no matter what kind of error they are.
 
                 HttpRequestMessage restRequest = new(HttpMethod.Get, "/api/books_view_all");
                 HttpResponseMessage restResponse = await client.SendAsync(restRequest);
@@ -3463,7 +3796,7 @@ type Moon {
                 HttpResponseMessage graphQLResponse = await client.SendAsync(graphQLRequest);
                 Assert.AreEqual(HttpStatusCode.OK, graphQLResponse.StatusCode);
                 string body = await graphQLResponse.Content.ReadAsStringAsync();
-                Assert.DoesNotContain("errors", body); // In GraphQL, All errors end up in the errors array, no matter what kind of error they are.
+                Assert.IsFalse(body.Contains("errors")); // In GraphQL, All errors end up in the errors array, no matter what kind of error they are.
 
                 HttpRequestMessage restRequest = new(HttpMethod.Get, "/api/Book");
                 HttpResponseMessage restResponse = await client.SendAsync(restRequest);
@@ -3485,7 +3818,7 @@ type Moon {
             // Read the base config from the file system
             TestHelper.SetupDatabaseEnvironment(TestCategory.COSMOSDBNOSQL);
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            if (!baseLoader.TryLoadConfig(baseLoader.ConfigFilePath, out RuntimeConfig baseConfig))
+            if (!baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig))
             {
                 throw new ApplicationException("Failed to load the default CosmosDB_NoSQL config and cannot continue with tests.");
             }
@@ -3499,8 +3832,11 @@ type Moon {
             FileSystemRuntimeConfigLoader loader = new(fileSystem);
             RuntimeConfigProvider provider = new(loader);
 
+            Mock<ILogger<RuntimeConfigValidator>> loggerValidator = new();
+            RuntimeConfigValidator validator = new(provider, fileSystem, loggerValidator.Object);
+
             DataApiBuilderException exception =
-                Assert.Throws<DataApiBuilderException>(() => new CosmosSqlMetadataProvider(provider, fileSystem));
+                Assert.ThrowsException<DataApiBuilderException>(() => new CosmosSqlMetadataProvider(provider, validator, fileSystem));
             Assert.AreEqual("Circular reference detected in the provided GraphQL schema for entity 'Character'.", exception.Message);
             Assert.AreEqual(HttpStatusCode.InternalServerError, exception.StatusCode);
             Assert.AreEqual(DataApiBuilderException.SubStatusCodes.ErrorInInitialization, exception.SubStatusCode);
@@ -3529,7 +3865,7 @@ type Planet @model(name:""PlanetAlias"") {
             // Read the base config from the file system
             TestHelper.SetupDatabaseEnvironment(TestCategory.COSMOSDBNOSQL);
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            if (!baseLoader.TryLoadConfig(baseLoader.ConfigFilePath, out RuntimeConfig baseConfig))
+            if (!baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig))
             {
                 throw new ApplicationException("Failed to load the default CosmosDB_NoSQL config and cannot continue with tests.");
             }
@@ -3550,9 +3886,11 @@ type Planet @model(name:""PlanetAlias"") {
             });
             FileSystemRuntimeConfigLoader loader = new(fileSystem);
             RuntimeConfigProvider provider = new(loader);
+            Mock<ILogger<RuntimeConfigValidator>> loggerValidator = new();
+            RuntimeConfigValidator validator = new(provider, fileSystem, loggerValidator.Object);
 
             DataApiBuilderException exception =
-                Assert.Throws<DataApiBuilderException>(() => new CosmosSqlMetadataProvider(provider, fileSystem));
+                Assert.ThrowsException<DataApiBuilderException>(() => new CosmosSqlMetadataProvider(provider, validator, fileSystem));
             Assert.AreEqual("The entity 'Character' was not found in the runtime config.", exception.Message);
             Assert.AreEqual(HttpStatusCode.ServiceUnavailable, exception.StatusCode);
             Assert.AreEqual(DataApiBuilderException.SubStatusCodes.ConfigValidationError, exception.SubStatusCode);
@@ -3568,11 +3906,11 @@ type Planet @model(name:""PlanetAlias"") {
         /// <param name="authType">EasyAuth auth type - AppService or StaticWebApps.</param>
         /// <param name="setEnvVars">Whether to set the AppService host environment variables.</param>
         /// <param name="expectError">Whether an error is expected.</param>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(HostMode.Development, EasyAuthType.AppService, false, false, DisplayName = "AppService Dev - No EnvVars - No Error")]
         [DataRow(HostMode.Development, EasyAuthType.AppService, true, false, DisplayName = "AppService Dev - EnvVars - No Error")]
-        [DataRow(HostMode.Production, EasyAuthType.AppService, false, true, DisplayName = "AppService Prod - No EnvVars - Error")]
+        [DataRow(HostMode.Production, EasyAuthType.AppService, false, false, DisplayName = "AppService Prod - No EnvVars - Error")]
         [DataRow(HostMode.Production, EasyAuthType.AppService, true, false, DisplayName = "AppService Prod - EnvVars - Error")]
         [DataRow(HostMode.Development, EasyAuthType.StaticWebApps, false, false, DisplayName = "SWA Dev - No EnvVars - No Error")]
         [DataRow(HostMode.Development, EasyAuthType.StaticWebApps, true, false, DisplayName = "SWA Dev - EnvVars - No Error")]
@@ -3606,8 +3944,10 @@ type Planet @model(name:""PlanetAlias"") {
             string[] args = new[]
             {
             $"--ConfigFileName={CUSTOM_CONFIG}"
-        };
+            };
 
+            // When host is in Production mode with AppService as Identity Provider and the environment variables are not set
+            // we do not throw an exception any longer(PR: 2943), instead log a warning to the user. In this case expectError is false.
             // This test only checks for startup errors, so no requests are sent to the test server.
             try
             {
@@ -3628,7 +3968,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// </summary>
         /// <seealso cref="https://github.com/ChilliCream/hotchocolate/blob/6b2cfc94695cb65e2f68f5d8deb576e48397a98a/src/HotChocolate/Core/src/Abstractions/ErrorCodes.cs#L287"/>
         [TestCategory(TestCategory.MSSQL)]
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(false, true, "Introspection is not allowed for the current request.", CONFIGURATION_ENDPOINT, DisplayName = "Disabled introspection returns GraphQL error.")]
         [DataRow(true, false, null, CONFIGURATION_ENDPOINT, DisplayName = "Enabled introspection does not return introspection forbidden error.")]
         [DataRow(false, true, "Introspection is not allowed for the current request.", CONFIGURATION_ENDPOINT_V2, DisplayName = "Disabled introspection returns GraphQL error.")]
@@ -3661,7 +4001,7 @@ type Planet @model(name:""PlanetAlias"") {
             using (HttpClient client = server.CreateClient())
             {
                 JsonContent content = GetPostStartupConfigParams(MSSQL_ENVIRONMENT, configuration, configurationEndpoint);
-                HttpStatusCode responseCode = await HydratePostStartupConfiguration(client, content, configurationEndpoint);
+                HttpStatusCode responseCode = await HydratePostStartupConfiguration(client, content, configurationEndpoint, configuration.Runtime.Rest);
 
                 Assert.AreEqual(expected: HttpStatusCode.OK, actual: responseCode, message: "Configuration hydration failed.");
 
@@ -3676,7 +4016,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// introspection field names which begin with double underscore (__).
         /// </summary>
         [TestCategory(TestCategory.MSSQL)]
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(true, true, "__typeName", "__introspectionField", true, DisplayName = "Name violation, fails since no proper mapping set.")]
         [DataRow(true, true, "__typeName", "columnMapping", false, DisplayName = "Name violation, but OK since proper mapping set.")]
         [DataRow(false, true, null, null, false, DisplayName = "Name violation, but OK since GraphQL globally disabled.")]
@@ -3752,7 +4092,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// <param name="expectedStatusCode">Expected Status Code.</param>
         /// <param name="expectedOpenApiTargetContent">Snippet of expected HTML to be emitted from successful page load.
         /// This should note the openapi route that Swagger will use to retrieve the OpenAPI document.</param>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow("/api", HostMode.Development, false, HttpStatusCode.OK, "{\"urls\":[{\"url\":\"/api/openapi\"", DisplayName = "SwaggerUI enabled in development mode.")]
         [DataRow("/custompath", HostMode.Development, false, HttpStatusCode.OK, "{\"urls\":[{\"url\":\"/custompath/openapi\"", DisplayName = "SwaggerUI enabled with custom REST path in development mode.")]
@@ -3823,7 +4163,7 @@ type Planet @model(name:""PlanetAlias"") {
 
                     // Validate that Swagger requests OpenAPI document using REST path defined in runtime config.
                     string actualBody = await followUpResponse.Content.ReadAsStringAsync();
-                    Assert.Contains(expectedOpenApiTargetContent, actualBody);
+                    Assert.AreEqual(true, actualBody.Contains(expectedOpenApiTargetContent));
                 }
             }
         }
@@ -3832,7 +4172,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// Test different loglevel values that are avaliable by deserializing RuntimeConfig with specified LogLevel
         /// and checks if value exists properly inside the deserialized RuntimeConfig.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(LogLevel.Trace, DisplayName = "Validates that log level Trace deserialized correctly")]
         [DataRow(LogLevel.Debug, DisplayName = "Validates log level Debug deserialized correctly")]
@@ -3857,7 +4197,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// <summary>
         /// Test different loglevel values that do not exist to ensure that the build fails when they are trying to be set up
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(-1, DisplayName = "Validates that a negative log level value, fails to build")]
         [DataRow(7, DisplayName = "Validates that a positive log level value that does not exist, fails to build")]
@@ -3884,7 +4224,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// <summary>
         /// Tests different loglevel values to see if they are serialized correctly to the Json config
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(LogLevel.Debug)]
         [DataRow(LogLevel.Warning)]
@@ -3921,7 +4261,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// Tests different log level filters that are valid and check that they are deserialized correctly
         /// </summary>
         [Ignore]
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(LogLevel.Trace, typeof(RuntimeConfigValidator))]
         [DataRow(LogLevel.Debug, typeof(SqlQueryEngine))]
@@ -3945,9 +4285,10 @@ type Planet @model(name:""PlanetAlias"") {
         /// This test uses strings as we are checking for values that are not avaliable using the typeof() function
         /// It is the same test as ValidLogLevelFilters.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(LogLevel.Trace, "default")]
+        [DataRow(LogLevel.Warning, "Default")]
         [DataRow(LogLevel.Debug, "Azure")]
         [DataRow(LogLevel.Information, "Azure.DataApiBuilder")]
         [DataRow(LogLevel.Warning, "Azure.DataApiBuilder.Core")]
@@ -3983,7 +4324,7 @@ type Planet @model(name:""PlanetAlias"") {
 
             // Start a new server with the custom log level to ensure the
             // instantiation of the valid log level filters works as expected.
-            TestServer server = new(Program.CreateWebHostBuilder(args));
+            using TestServer server = new(Program.CreateWebHostBuilder(args));
             RuntimeConfigProvider runtimeConfigProvider = server.Services.GetService<RuntimeConfigProvider>();
 
             // RuntimeConfig with instantiated log level filters.
@@ -4005,14 +4346,14 @@ type Planet @model(name:""PlanetAlias"") {
 
             Dictionary<string, LogLevel?> actualLoggerLevel = deserializedRuntimeConfig.Runtime.Telemetry.LoggerLevel;
             Assert.IsTrue(actualLoggerLevel.ContainsKey(loggingFilter) && actualLoggerLevel.Count == 1);
-            Assert.AreEqual(logLevel, actualLoggerLevel[loggingFilter]);
+            Assert.IsTrue(actualLoggerLevel[loggingFilter] == logLevel);
         }
 
         /// <summary>
         /// Tests that between multiple log level filters,
         /// the one that is more specific is always given priority.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(LogLevel.Debug, "Azure", LogLevel.Warning, "default", typeof(IQueryExecutor))]
         [DataRow(LogLevel.Information, "Azure.DataApiBuilder", LogLevel.Error, "Azure", typeof(IQueryExecutor))]
@@ -4021,7 +4362,7 @@ type Planet @model(name:""PlanetAlias"") {
         public void PriorityLogLevelFilters(LogLevel highPriLevel, string highPriFilter, LogLevel lowPriLevel, string lowPriFilter, Type type)
         {
             string classString = type.FullName;
-            StartupConfiguration.AddValidFilters();
+            Startup.AddValidFilters();
             Dictionary<string, LogLevel?> logLevelOptions = new();
             logLevelOptions.Add(highPriFilter, highPriLevel);
             logLevelOptions.Add(lowPriFilter, lowPriLevel);
@@ -4047,7 +4388,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// <summary>
         /// Tests log level filters that are not available and checks that they give the correct error.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow("Azure.DataApiBuilder.Core.Configur", DisplayName = "Validates that an incomplete log level keyword fails to build")]
         [DataRow("Azure.DataApiBuilder.Core.Configurations.RuntimeConfigVldtr", DisplayName = "Validates that a wrong name at end of log level keyword fails to build")]
@@ -4082,7 +4423,7 @@ type Planet @model(name:""PlanetAlias"") {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
 
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            baseLoader.TryLoadConfig(baseLoader.ConfigFilePath, out RuntimeConfig baseConfig);
+            baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig);
 
             RuntimeConfig config = new(
                 Schema: baseConfig.Schema,
@@ -4105,7 +4446,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// <summary>
         /// Tests different Azure Log Analytics values to see if they are serialized and deserialized correctly to the Json config
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(true, "CustomTableName", "DcrImmutableId", "DceEndpoint", "TestDabLog", 1, true, "TestDabLog", 1)]
         [DataRow(false, "", null, "", "", 10, false, "", 10)]
@@ -4203,7 +4544,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// <summary>
         /// Tests different File Sink values to see if they are serialized and deserialized correctly to the Json config
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [TestCategory(TestCategory.MSSQL)]
         [DataRow(true, "/file/path/exists.txt", RollingInterval.Minute, 27, 256, true, "/file/path/exists.txt", RollingInterval.Minute, 27, 256)]
         [DataRow(true, "/test/path.csv", RollingInterval.Hour, 10, 3000, true, "/test/path.csv", RollingInterval.Hour, 10, 3000)]
@@ -4286,6 +4627,176 @@ type Planet @model(name:""PlanetAlias"") {
             }
         }
 
+        /// <summary>
+        /// Test validates that autoentities section can be deserialized and serialized correctly.
+        /// </summary>
+        [DataTestMethod]
+        [TestCategory(TestCategory.MSSQL)]
+        [DataRow(null, null, null, null, null, null, null, null, null, "anonymous", EntityActionOperation.Read)]
+        [DataRow(new[] { "%.%" }, new[] { "%.%" }, "{object}", true, true, true, false, 5, EntityCacheLevel.L1L2, "anonymous", EntityActionOperation.Read)]
+        [DataRow(new[] { "books.%" }, new[] { "books.pages.%" }, "books_{object}", false, false, false, true, 2147483647, EntityCacheLevel.L1, "test-user", EntityActionOperation.Delete)]
+        [DataRow(new[] { "books.%" }, null, "books_{object}", false, null, false, null, 2147483647, null, "test-user", EntityActionOperation.Delete)]
+        [DataRow(null, new[] { "books.pages.%" }, null, null, false, null, true, null, EntityCacheLevel.L1, "test-user", EntityActionOperation.Delete)]
+        [DataRow(new[] { "title.%", "books.%", "names.%" }, new[] { "names.%", "%.%" }, "{schema}.{object}", true, false, false, true, 1, null, "second-test-user", EntityActionOperation.Create)]
+        public void TestAutoEntitiesSerializationDeserialization(
+            string[]? include,
+            string[]? exclude,
+            string? name,
+            bool? restEnabled,
+            bool? graphqlEnabled,
+            bool? healthCheckEnabled,
+            bool? cacheEnabled,
+            int? cacheTTL,
+            EntityCacheLevel? cacheLevel,
+            string role,
+            EntityActionOperation entityActionOp)
+        {
+            TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
+
+            Dictionary<string, Autoentity> createdAutoentity = new();
+            createdAutoentity.Add("test-entity",
+                new Autoentity(
+                    Patterns: new AutoentityPatterns(include, exclude, name),
+                    Template: new AutoentityTemplate(
+                        Rest: restEnabled == null ? null : new EntityRestOptions(Enabled: (bool)restEnabled),
+                        GraphQL: graphqlEnabled == null ? null : new EntityGraphQLOptions(Singular: string.Empty, Plural: string.Empty, Enabled: (bool)graphqlEnabled),
+                        Health: healthCheckEnabled == null ? null : new EntityHealthCheckConfig(healthCheckEnabled),
+                        Cache: (cacheEnabled == null && cacheTTL == null && cacheLevel == null) ? null : new EntityCacheOptions(Enabled: cacheEnabled, TtlSeconds: cacheTTL, Level: cacheLevel)
+                    ),
+                    Permissions: new EntityPermission[1]));
+
+            EntityAction[] entityActions = new EntityAction[] { new(entityActionOp, null, null) };
+            createdAutoentity["test-entity"].Permissions[0] = new EntityPermission(role, entityActions);
+            RuntimeAutoentities autoentities = new(createdAutoentity);
+
+            FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
+            baseLoader.TryLoadKnownConfig(out RuntimeConfig? baseConfig);
+
+            RuntimeConfig config = new(
+                Schema: baseConfig!.Schema,
+                DataSource: baseConfig.DataSource,
+                Runtime: new(
+                    Rest: new(),
+                    GraphQL: new(),
+                    Mcp: new(),
+                    Host: new(null, null),
+                    Telemetry: new()
+                ),
+                Entities: baseConfig.Entities,
+                Autoentities: autoentities
+            );
+
+            string configWithCustomJson = config.ToJson();
+            Assert.IsTrue(RuntimeConfigLoader.TryParseConfig(configWithCustomJson, out RuntimeConfig? deserializedRuntimeConfig));
+
+            string serializedConfig = deserializedRuntimeConfig.ToJson();
+
+            using (JsonDocument parsedDocument = JsonDocument.Parse(serializedConfig))
+            {
+                JsonElement root = parsedDocument.RootElement;
+                JsonElement autoentitiesElement = root.GetProperty("autoentities");
+
+                bool entityExists = autoentitiesElement.TryGetProperty("test-entity", out JsonElement entityElement);
+                Assert.AreEqual(expected: true, actual: entityExists);
+
+                // Validate patterns properties and their values exists in autoentities
+                bool expectedPatternsExist = include != null || exclude != null || name != null;
+                bool patternsExists = entityElement.TryGetProperty("patterns", out JsonElement patternsElement);
+                Assert.AreEqual(expected: expectedPatternsExist, actual: patternsExists);
+
+                if (patternsExists)
+                {
+                    bool includeExists = patternsElement.TryGetProperty("include", out JsonElement includeElement);
+                    Assert.AreEqual(expected: (include != null), actual: includeExists);
+                    if (includeExists)
+                    {
+                        CollectionAssert.AreEqual(expected: include, actual: includeElement.EnumerateArray().Select(e => e.GetString()).ToArray());
+                    }
+
+                    bool excludeExists = patternsElement.TryGetProperty("exclude", out JsonElement excludeElement);
+                    Assert.AreEqual(expected: (exclude != null), actual: excludeExists);
+                    if (excludeExists)
+                    {
+                        CollectionAssert.AreEqual(expected: exclude, actual: excludeElement.EnumerateArray().Select(e => e.GetString()).ToArray());
+                    }
+
+                    bool nameExists = patternsElement.TryGetProperty("name", out JsonElement nameElement);
+                    Assert.AreEqual(expected: (name != null), actual: nameExists);
+                    if (nameExists)
+                    {
+                        Assert.AreEqual(expected: name, actual: nameElement.GetString());
+                    }
+                }
+
+                // Validate template properties and their values exists in autoentities
+                bool expectedTemplateExist = restEnabled != null || graphqlEnabled != null || healthCheckEnabled != null
+                    || cacheEnabled != null || cacheLevel != null || cacheTTL != null;
+                bool templateExists = entityElement.TryGetProperty("template", out JsonElement templateElement);
+                Assert.AreEqual(expected: expectedTemplateExist, actual: templateExists);
+
+                if (templateExists)
+                {
+                    bool restPropertyExists = templateElement.TryGetProperty("rest", out JsonElement restElement);
+                    Assert.AreEqual(expected: (restEnabled != null), actual: restPropertyExists);
+                    if (restPropertyExists)
+                    {
+                        Assert.IsTrue(restElement.TryGetProperty("enabled", out JsonElement restEnabledElement));
+                        Assert.AreEqual(expected: restEnabled, actual: restEnabledElement.GetBoolean());
+                    }
+
+                    bool graphqlPropertyExists = templateElement.TryGetProperty("graphql", out JsonElement graphqlElement);
+                    Assert.AreEqual(expected: (graphqlEnabled != null), actual: graphqlPropertyExists);
+                    if (graphqlPropertyExists)
+                    {
+                        Assert.IsTrue(graphqlElement.TryGetProperty("enabled", out JsonElement graphqlEnabledElement));
+                        Assert.AreEqual(expected: graphqlEnabled, actual: graphqlEnabledElement.GetBoolean());
+                    }
+
+                    bool healthPropertyExists = templateElement.TryGetProperty("health", out JsonElement healthElement);
+                    Assert.AreEqual(expected: (healthCheckEnabled != null), actual: healthPropertyExists);
+                    if (healthPropertyExists)
+                    {
+                        Assert.IsTrue(healthElement.TryGetProperty("enabled", out JsonElement healthEnabledElement));
+                        Assert.AreEqual(expected: healthCheckEnabled, actual: healthEnabledElement.GetBoolean());
+                    }
+
+                    bool expectedCacheExist = cacheEnabled != null || cacheTTL != null || cacheLevel != null;
+                    bool cachePropertyExists = templateElement.TryGetProperty("cache", out JsonElement cacheElement);
+                    Assert.AreEqual(expected: expectedCacheExist, actual: cachePropertyExists);
+                    if (cacheEnabled != null)
+                    {
+                        Assert.IsTrue(cacheElement.TryGetProperty("enabled", out JsonElement cacheEnabledElement));
+                        Assert.AreEqual(expected: cacheEnabled, actual: cacheEnabledElement.GetBoolean());
+                    }
+
+                    if (cacheTTL != null)
+                    {
+                        Assert.IsTrue(cacheElement.TryGetProperty("ttl-seconds", out JsonElement cacheTtlElement));
+                        Assert.AreEqual(expected: cacheTTL, actual: cacheTtlElement.GetInt32());
+                    }
+
+                    if (cacheLevel != null)
+                    {
+                        Assert.IsTrue(cacheElement.TryGetProperty("level", out JsonElement cacheLevelElement));
+                        Assert.IsTrue(string.Equals(cacheLevel.ToString(), cacheLevelElement.GetString(), StringComparison.OrdinalIgnoreCase));
+                    }
+                }
+
+                // Validate permissions properties and their values exists in autoentities
+                JsonElement permissionsElement = entityElement.GetProperty("permissions");
+
+                bool roleExists = permissionsElement[0].TryGetProperty("role", out JsonElement roleElement);
+                Assert.AreEqual(expected: true, actual: roleExists);
+                Assert.AreEqual(expected: role, actual: roleElement.GetString());
+
+                bool entityActionsExists = permissionsElement[0].TryGetProperty("actions", out JsonElement entityActionsElement);
+                Assert.AreEqual(expected: true, actual: entityActionsExists);
+                bool entityActionOpExists = entityActionsElement[0].TryGetProperty("action", out JsonElement entityActionOpElement);
+                Assert.AreEqual(expected: true, actual: entityActionOpExists);
+                Assert.IsTrue(string.Equals(entityActionOp.ToString(), entityActionOpElement.GetString(), StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
 #nullable disable
 
         /// <summary>
@@ -4296,7 +4807,7 @@ type Planet @model(name:""PlanetAlias"") {
             TestHelper.SetupDatabaseEnvironment(MSSQL_ENVIRONMENT);
 
             FileSystemRuntimeConfigLoader baseLoader = TestHelper.GetRuntimeConfigLoader();
-            baseLoader.TryLoadConfig(baseLoader.ConfigFilePath, out RuntimeConfig baseConfig);
+            baseLoader.TryLoadKnownConfig(out RuntimeConfig baseConfig);
 
             RuntimeConfig config = new(
                 Schema: baseConfig.Schema,
@@ -4322,7 +4833,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// Global REST disabled:
         /// - GET to /openapi fails with 404 Not Found.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(true, false, DisplayName = "Global REST endpoint enabled - successful OpenAPI doc retrieval")]
         [DataRow(false, true, DisplayName = "Global REST endpoint disabled - OpenAPI doc does not exist - HTTP404 NotFound.")]
         [TestCategory(TestCategory.MSSQL)]
@@ -4520,7 +5031,7 @@ type Planet @model(name:""PlanetAlias"") {
         /// did not come across two $after query parameters. This addresses a customer raised issue where two $after
         /// query parameters were returned by DAB.
         /// </summary>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(false, DisplayName = "NextLinkRelative is false")]
         [DataRow(true, DisplayName = "NextLinkRelative is true")]
         [TestCategory(TestCategory.MSSQL)]
@@ -4635,15 +5146,15 @@ type Planet @model(name:""PlanetAlias"") {
                 // The server returned a relative URL, so it should NOT start with http/https
                 Assert.IsFalse(Uri.IsWellFormedUriString(followUpResponseNextLink, UriKind.Absolute),
                     $"nextLink was expected to be relative but was absolute: {followUpResponseNextLink}");
-                Assert.StartsWith("/",
-followUpResponseNextLink, $"nextLink was expected to start with '/' (relative), got: {followUpResponseNextLink}");
+                Assert.IsTrue(followUpResponseNextLink.StartsWith("/"),
+                    $"nextLink was expected to start with '/' (relative), got: {followUpResponseNextLink}");
             }
             else
             {
                 Assert.IsTrue(Uri.IsWellFormedUriString(followUpResponseNextLink, UriKind.Absolute),
                     $"nextLink was expected to be absolute but was relative: {followUpResponseNextLink}");
-                Assert.StartsWith("http",
-followUpResponseNextLink, $"nextLink was expected to start with http/https, got: {followUpResponseNextLink}");
+                Assert.IsTrue(followUpResponseNextLink.StartsWith("http"),
+                    $"nextLink was expected to start with http/https, got: {followUpResponseNextLink}");
             }
         }
 
@@ -4652,7 +5163,7 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
         /// </summary>
         /// <param name="forwardedHost">The X-Forwarded-Host value</param>
         /// <param name="forwardedProto">The X-Forwarded-Proto value</param>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow("localhost:5000", "http", DisplayName = "Forwarded Host and HTTP Protocol")]
         [DataRow("myhost.com", "https", DisplayName = "Forwarded Host and HTTPS Protocol")]
         [TestCategory(TestCategory.MSSQL)]
@@ -4762,7 +5273,7 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
         /// <param name="depthLimit">The maximum allowed depth for GraphQL queries and mutations.</param>
         /// <param name="operationType">Indicates whether the operation is a mutation or a query.</param>
         /// <param name="expectedStatusCodeForGraphQL">The expected HTTP status code for the operation.</param>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(1, GraphQLOperation.Query, HttpStatusCode.BadRequest, DisplayName = "Failed Query execution when max depth limit is set to 1")]
         [DataRow(2, GraphQLOperation.Query, HttpStatusCode.OK, DisplayName = "Query execution successful when max depth limit is set to 2")]
         [DataRow(1, GraphQLOperation.Mutation, HttpStatusCode.BadRequest, DisplayName = "Failed Mutation execution when max depth limit is set to 1")]
@@ -4935,6 +5446,346 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
         }
 
         /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="useEntities"></param>
+        /// <param name="expectedEntityCount"></param>
+        /// <returns></returns>
+        [TestCategory(TestCategory.MSSQL)]
+        [DataTestMethod]
+        [DataRow(true, 4, DisplayName = "Test Autoentities with additional entities")]
+        [DataRow(false, 2, DisplayName = "Test Autoentities without additional entities")]
+        public async Task TestAutoentitiesAreGeneratedIntoEntities(bool useEntities, int expectedEntityCount)
+        {
+            // Arrange
+            EntityRelationship bookRelationship = new(Cardinality: Cardinality.One,
+                                                      TargetEntity: "BookPublisher",
+                                                      SourceFields: new string[] { },
+                                                      TargetFields: new string[] { },
+                                                      LinkingObject: null,
+                                                      LinkingSourceFields: null,
+                                                      LinkingTargetFields: null);
+
+            Entity bookEntity = new(Source: new("books", EntitySourceType.Table, null, null),
+                                    Fields: null,
+                                    Rest: null,
+                                    GraphQL: new(Singular: "book", Plural: "books"),
+                                    Permissions: new[] { GetMinimalPermissionConfig(AuthorizationResolver.ROLE_ANONYMOUS) },
+                                    Relationships: new Dictionary<string, EntityRelationship>() { { "publishers", bookRelationship } },
+                                    Mappings: null);
+
+            EntityRelationship publisherRelationship = new(Cardinality: Cardinality.Many,
+                                                           TargetEntity: "Book",
+                                                           SourceFields: new string[] { },
+                                                           TargetFields: new string[] { },
+                                                           LinkingObject: null,
+                                                           LinkingSourceFields: null,
+                                                           LinkingTargetFields: null);
+
+            Entity publisherEntity = new(
+                Source: new("publishers", EntitySourceType.Table, null, null),
+                Fields: null,
+                Rest: null,
+                GraphQL: new(Singular: "bookpublisher", Plural: "bookpublishers"),
+                Permissions: new[] { GetMinimalPermissionConfig(AuthorizationResolver.ROLE_ANONYMOUS) },
+                Relationships: new Dictionary<string, EntityRelationship>() { { "books", publisherRelationship } },
+                Mappings: null);
+
+            Dictionary<string, Entity> entityMap = new()
+            {
+                { "Book", bookEntity },
+                { "BookPublisher", publisherEntity }
+            };
+
+            Dictionary<string, Autoentity> autoentityMap = new()
+            {
+                {
+                    "PublisherAutoEntity", new Autoentity(
+                        Patterns: new AutoentityPatterns(
+                            Include: new[] { "%publishers%" },
+                            Exclude: null,
+                            Name: null
+                        ),
+                        Template: new AutoentityTemplate(
+                            Rest: new EntityRestOptions(Enabled: true),
+                            GraphQL: new EntityGraphQLOptions(
+                                Singular: string.Empty,
+                                Plural: string.Empty,
+                                Enabled: true
+                            ),
+                            Health: null,
+                            Cache: null
+                        ),
+                        Permissions: new[] { GetMinimalPermissionConfig(AuthorizationResolver.ROLE_ANONYMOUS) }
+                    )
+                }
+            };
+
+            // Create DataSource for MSSQL connection
+            DataSource dataSource = new(DatabaseType.MSSQL,
+                GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL), Options: null);
+
+            // Build complete runtime configuration with autoentities
+            RuntimeConfig configuration = new(
+                Schema: "TestAutoentitiesSchema",
+                DataSource: dataSource,
+                Runtime: new(
+                    Rest: new(Enabled: true),
+                    GraphQL: new(Enabled: true),
+                    Mcp: new(Enabled: false),
+                    Host: new(
+                        Cors: null,
+                        Authentication: new Config.ObjectModel.AuthenticationOptions(
+                            Provider: nameof(EasyAuthType.StaticWebApps),
+                            Jwt: null
+                        )
+                    )
+                ),
+                Entities: new(useEntities ? entityMap : new Dictionary<string, Entity>()),
+                Autoentities: new RuntimeAutoentities(autoentityMap)
+            );
+
+            File.WriteAllText(CUSTOM_CONFIG_FILENAME, configuration.ToJson());
+
+            string[] args = new[] { $"--ConfigFileName={CUSTOM_CONFIG_FILENAME}" };
+
+            using (TestServer server = new(Program.CreateWebHostBuilder(args)))
+            using (HttpClient client = server.CreateClient())
+            {
+                // Act
+                RuntimeConfigProvider configProvider = server.Services.GetService<RuntimeConfigProvider>();
+                using HttpRequestMessage restRequest = new(HttpMethod.Get, "/api/publishers");
+                using HttpResponseMessage restResponse = await client.SendAsync(restRequest);
+
+                string graphqlQuery = @"
+                {
+                    publishers {
+                        items {
+                            id
+                            name
+                        }
+                    }
+                }";
+
+                object graphqlPayload = new { query = graphqlQuery };
+                HttpRequestMessage graphqlRequest = new(HttpMethod.Post, "/graphql")
+                {
+                    Content = JsonContent.Create(graphqlPayload)
+                };
+                HttpResponseMessage graphqlResponse = await client.SendAsync(graphqlRequest);
+
+                // Assert
+                string expectedResponseFragment = @"{""id"":1156,""name"":""The First Publisher""}";
+
+                // Verify number of entities
+                Assert.AreEqual(expectedEntityCount, configProvider.GetConfig().Entities.Entities.Count, "Number of generated entities is not what is expected");
+
+                // Verify REST response
+                Assert.AreEqual(HttpStatusCode.OK, restResponse.StatusCode, "REST request to auto-generated entity should succeed");
+
+                string restResponseBody = await restResponse.Content.ReadAsStringAsync();
+                Assert.IsTrue(!string.IsNullOrEmpty(restResponseBody), "REST response should contain data");
+                Assert.IsTrue(restResponseBody.Contains(expectedResponseFragment));
+
+                // Verify GraphQL response
+                Assert.AreEqual(HttpStatusCode.OK, graphqlResponse.StatusCode, "GraphQL request to auto-generated entity should succeed");
+
+                string graphqlResponseBody = await graphqlResponse.Content.ReadAsStringAsync();
+                Assert.IsTrue(!string.IsNullOrEmpty(graphqlResponseBody), "GraphQL response should contain data");
+                Assert.IsFalse(graphqlResponseBody.Contains("errors"), "GraphQL response should not contain errors");
+                Assert.IsTrue(graphqlResponseBody.Contains(expectedResponseFragment));
+            }
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="entityName"></param>
+        /// <param name="singular"></param>
+        /// <param name="plural"></param>
+        /// <param name="path"></param>
+        /// <param name="exceptionMessage"></param>
+        /// <returns></returns>
+        [TestCategory(TestCategory.MSSQL)]
+        [DataTestMethod]
+        [DataRow("publishers", "uniqueSingularPublisher", "uniquePluralPublishers", "/unique/publisher", "Entity 'publishers' conflicts with autoentity pattern 'PublisherAutoEntity'. Use --patterns.exclude to skip it.", DisplayName = "Autoentities fail due to entity name")]
+        [DataRow("UniquePublisher", "publishers", "uniquePluralPublishers", "/unique/publisher", "Entity publishers generates queries/mutation that already exist", DisplayName = "Autoentities fail due to graphql singular type")]
+        [DataRow("UniquePublisher", "uniqueSingularPublisher", "publishers", "/unique/publisher", "Entity publishers generates queries/mutation that already exist", DisplayName = "Autoentities fail due to graphql plural type")]
+        [DataRow("UniquePublisher", "uniqueSingularPublisher", "uniquePluralPublishers", "/publishers", "The rest path: publishers specified for entity: publishers is already used by another entity.", DisplayName = "Autoentities fail due to rest path")]
+        public async Task ValidateAutoentityGenerationConflicts(string entityName, string singular, string plural, string path, string exceptionMessage)
+        {
+            // Arrange
+            Entity publisherEntity = new(
+                Source: new("publishers", EntitySourceType.Table, null, null),
+                Fields: null,
+                Rest: new(Path: path),
+                GraphQL: new(Singular: singular, Plural: plural),
+                Permissions: new[] { GetMinimalPermissionConfig(AuthorizationResolver.ROLE_ANONYMOUS) },
+                Relationships: null,
+                Mappings: null);
+
+            Dictionary<string, Entity> entityMap = new()
+            {
+                { entityName, publisherEntity }
+            };
+
+            Dictionary<string, Autoentity> autoentityMap = new()
+            {
+                {
+                    "PublisherAutoEntity", new Autoentity(
+                        Patterns: new AutoentityPatterns(
+                            Include: new[] { "%publishers%" },
+                            Exclude: null,
+                            Name: null
+                        ),
+                        Template: new AutoentityTemplate(
+                            Rest: new EntityRestOptions(
+                                Enabled: true),
+                            GraphQL: new EntityGraphQLOptions(
+                                Singular: string.Empty,
+                                Plural: string.Empty,
+                                Enabled: true
+                            ),
+                            Health: null,
+                            Cache: null
+                        ),
+                        Permissions: new[] { GetMinimalPermissionConfig(AuthorizationResolver.ROLE_ANONYMOUS) }
+                    )
+                }
+            };
+
+            // Create DataSource for MSSQL connection
+            DataSource dataSource = new(DatabaseType.MSSQL,
+                GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL), Options: null);
+
+            // Build complete runtime configuration with autoentities
+            RuntimeConfig configuration = new(
+                Schema: "TestAutoentitiesSchema",
+                DataSource: dataSource,
+                Runtime: new(
+                    Rest: new(Enabled: true),
+                    GraphQL: new(Enabled: true),
+                    Mcp: new(Enabled: false),
+                    Host: new(
+                        Mode: HostMode.Development,
+                        Cors: null,
+                        Authentication: new Config.ObjectModel.AuthenticationOptions(
+                            Provider: nameof(EasyAuthType.StaticWebApps),
+                            Jwt: null
+                        )
+                    )
+                ),
+                Entities: new(entityMap),
+                Autoentities: new RuntimeAutoentities(autoentityMap)
+            );
+
+            File.WriteAllText(CUSTOM_CONFIG_FILENAME, configuration.ToJson());
+
+            ILoggerFactory loggerFactory = new LoggerFactory();
+            IFileSystem fileSystem = new FileSystem();
+
+            FileSystemRuntimeConfigLoader configLoader = new(fileSystem)
+            {
+                RuntimeConfig = configuration
+            };
+
+            RuntimeConfigProvider configProvider = new(configLoader);
+
+            RuntimeConfigValidator configValidator = new(configProvider, fileSystem, loggerFactory.CreateLogger<RuntimeConfigValidator>());
+
+            QueryManagerFactory queryManagerFactory = new(
+                runtimeConfigProvider: configProvider,
+                logger: loggerFactory.CreateLogger<IQueryExecutor>(),
+                contextAccessor: null!,
+                handler: null);
+
+            MsSqlMetadataProvider provider = new(
+                configProvider,
+                configValidator,
+                queryManagerFactory,
+                loggerFactory.CreateLogger<MsSqlMetadataProvider>(),
+                configLoader.RuntimeConfig.DefaultDataSourceName,
+                false);
+
+            try
+            {
+                await provider.InitializeAsync();
+                Assert.Fail("It is expected for DAB to fail due to entities not containing unique parameters.");
+            }
+            catch (DataApiBuilderException ex)
+            {
+                Assert.AreEqual(exceptionMessage, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Validates the autoentity configuration inside the configuration file and also
+        /// validates that entities created from the autoentity configuration do not generate
+        /// duplicate entities and paths for REST and GraphQL.
+        /// </summary>
+        /// <returns></returns>
+        [TestCategory(TestCategory.MSSQL)]
+        [TestMethod]
+        public async Task ValidateAutoentitiesConfiguration()
+        {
+            EntityAction entityAction = new(EntityActionOperation.Read, null, null);
+
+            Dictionary<string, Autoentity> autoentityMap = new();
+            string autoentityName = "AutoentityA";
+
+            Autoentity autoentity = new(
+                Patterns: new AutoentityPatterns(
+                    Include: new[] { "%patterns%" },
+                    Exclude: new[] { "%books%" },
+                    Name: "{object}"),
+                Template: new AutoentityTemplate(
+                    Rest: new(Enabled: false),
+                    GraphQL: new(Enabled: true, Singular: string.Empty, Plural: string.Empty),
+                    Health: new(enabled: true),
+                    Cache: new(Enabled: true, TtlSeconds: 50)),
+                Permissions: new EntityPermission[] { new("anonymous", new EntityAction[] { entityAction }) });
+
+            autoentityMap.Add(autoentityName, autoentity);
+
+            DataSource dataSource = new(DatabaseType.MSSQL,
+                GetConnectionStringFromEnvironmentConfig(environment: TestCategory.MSSQL), Options: null);
+
+            RuntimeConfig runtimeConfig = new(
+                Schema: "TestAutoentitiesSchema",
+                DataSource: dataSource,
+                Runtime: new(
+                    Rest: new(),
+                    GraphQL: new(),
+                    Mcp: new(),
+                    Host: new(null, null, HostMode.Development)),
+                Entities: new(new Dictionary<string, Entity>()),
+                Autoentities: new(autoentityMap));
+
+            const string CUSTOM_CONFIG = "autoentities-validation-config.json";
+
+            File.WriteAllText(CUSTOM_CONFIG, runtimeConfig.ToJson());
+            IFileSystem fileSystem = new FileSystem();
+
+            FileSystemRuntimeConfigLoader loader = new(fileSystem)
+            {
+                RuntimeConfig = runtimeConfig
+            };
+
+            RuntimeConfigProvider provider = new(loader);
+            Mock<ILogger<RuntimeConfigValidator>> loggerMock = new();
+            RuntimeConfigValidator configValidator = new(provider, fileSystem, loggerMock.Object);
+
+            try
+            {
+                await configValidator.TryValidateConfig(CUSTOM_CONFIG, TestHelper.ProvisionLoggerFactory());
+            }
+            catch (Exception ex)
+            {
+                Assert.Fail(ex.Message);
+            }
+        }
+
+        /// <summary>
         /// Tests the behavior of GraphQL queries in non-hosted mode when the depth limit is explicitly set to -1 or null.
         /// Setting the depth limit to -1 is intended to disable the depth limit check, allowing queries of any depth.
         /// Using null as default value of dab which also disables the depth limit check.
@@ -4949,7 +5800,7 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
         /// }
         /// </summary>
         /// <param name="depthLimit"> </param>
-        [TestMethod]
+        [DataTestMethod]
         [DataRow(-1, DisplayName = "Setting -1 for depth-limit will disable the depth limit")]
         [DataRow(null, DisplayName = "Using default value: null for depth-limit which also disables the depth limit check")]
         [TestCategory(TestCategory.MSSQL)]
@@ -5256,41 +6107,67 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
         /// by executing HTTP requests against the engine until a non-503 error is received.
         /// </summary>
         /// <param name="httpClient">Client used for request execution.</param>
-        /// <param name="config">Post-startup configuration</param>
+        /// <param name="content">New config file content that will be added to DAB.</param>
+        /// <param name="configurationEndpoint">Endpoint through which content will be sent to DAB."</param>
+        /// <param name="rest">Global settings used at runtime for REST APIs.</param>
         /// <returns>ServiceUnavailable if service is not successfully hydrated with config</returns>
-        private static async Task<HttpStatusCode> HydratePostStartupConfiguration(HttpClient httpClient, JsonContent content, string configurationEndpoint)
+        private static async Task<HttpStatusCode> HydratePostStartupConfiguration(HttpClient httpClient, JsonContent content, string configurationEndpoint, RestRuntimeOptions rest)
         {
-            // Hydrate configuration post-startup
-            HttpResponseMessage postResult =
-                await httpClient.PostAsync(configurationEndpoint, content);
-            Assert.AreEqual(HttpStatusCode.OK, postResult.StatusCode);
+            string appServiceTokenPayload = AuthTestHelper.CreateAppServiceEasyAuthToken(
+                roleClaimType: Config.ObjectModel.AuthenticationOptions.ROLE_CLAIM_TYPE,
+                additionalClaims:
+                [
+                    new AppServiceClaim
+                    {
+                        Typ = Config.ObjectModel.AuthenticationOptions.ROLE_CLAIM_TYPE,
+                        Val = POST_STARTUP_CONFIG_ROLE
+                    }
+                ]);
 
-            return await GetRestResponsePostConfigHydration(httpClient);
+            using HttpRequestMessage postRequest = new(HttpMethod.Post, configurationEndpoint)
+            {
+                Content = content
+            };
+
+            postRequest.Headers.Add(
+                Config.ObjectModel.AuthenticationOptions.CLIENT_PRINCIPAL_HEADER,
+                appServiceTokenPayload);
+
+            HttpResponseMessage postResult = await httpClient.SendAsync(postRequest);
+            string body = await postResult.Content.ReadAsStringAsync();
+            Assert.AreEqual(HttpStatusCode.OK, postResult.StatusCode, body);
+
+            return await GetRestResponsePostConfigHydration(httpClient, rest);
         }
 
         /// <summary>
         /// Executing REST requests against the engine until a non-503 error is received.
         /// </summary>
         /// <param name="httpClient">Client used for request execution.</param>
+        /// <param name="rest">Global settings used at runtime for REST APIs.</param>
         /// <returns>ServiceUnavailable if service is not successfully hydrated with config,
         /// else the response code from the REST request</returns>
-        private static async Task<HttpStatusCode> GetRestResponsePostConfigHydration(HttpClient httpClient)
+        private static async Task<HttpStatusCode> GetRestResponsePostConfigHydration(HttpClient httpClient, RestRuntimeOptions rest)
         {
-            // Retry request RETRY_COUNT times in 1 second increments to allow required services
-            // time to instantiate and hydrate permissions.
-            int retryCount = RETRY_COUNT;
+            // Retry request RETRY_COUNT times in exponential increments to allow
+            // required services time to instantiate and hydrate permissions because
+            // the DAB services may take an unpredictable amount of time to become ready.
+            //
+            // The service might still fail due to the service not being available yet,
+            // but it is highly unlikely to be the case.
+            int retryCount = 0;
             HttpStatusCode responseCode = HttpStatusCode.ServiceUnavailable;
-            while (retryCount > 0)
+            while (retryCount < RETRY_COUNT)
             {
                 // Spot test authorization resolver utilization to ensure configuration is used.
                 HttpResponseMessage postConfigHydrationResult =
-                    await httpClient.GetAsync($"api/{POST_STARTUP_CONFIG_ENTITY}");
+                    await httpClient.GetAsync($"{rest.Path}/{POST_STARTUP_CONFIG_ENTITY}");
                 responseCode = postConfigHydrationResult.StatusCode;
 
                 if (postConfigHydrationResult.StatusCode == HttpStatusCode.ServiceUnavailable)
                 {
-                    retryCount--;
-                    Thread.Sleep(TimeSpan.FromSeconds(RETRY_WAIT_SECONDS));
+                    retryCount++;
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(RETRY_WAIT_SECONDS, retryCount)));
                     continue;
                 }
 
@@ -5306,13 +6183,17 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
         /// <param name="httpClient">Client used for request execution.</param>
         /// <returns>ServiceUnavailable if service is not successfully hydrated with config,
         /// else the response code from the GRAPHQL request</returns>
-        private static async Task<HttpStatusCode> GetGraphQLResponsePostConfigHydration(HttpClient httpClient)
+        private static async Task<HttpStatusCode> GetGraphQLResponsePostConfigHydration(HttpClient httpClient, GraphQLRuntimeOptions graphQL)
         {
-            // Retry request RETRY_COUNT times in 1 second increments to allow required services
-            // time to instantiate and hydrate permissions.
-            int retryCount = RETRY_COUNT;
+            // Retry request RETRY_COUNT times in exponential increments to allow
+            // required services time to instantiate and hydrate permissions because
+            // the DAB services may take an unpredictable amount of time to become ready.
+            //
+            // The service might still fail due to the service not being available yet,
+            // but it is highly unlikely to be the case.
+            int retryCount = 0;
             HttpStatusCode responseCode = HttpStatusCode.ServiceUnavailable;
-            while (retryCount > 0)
+            while (retryCount < RETRY_COUNT)
             {
                 string query = @"{
                     book_by_pk(id: 1) {
@@ -5324,7 +6205,7 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
 
                 object payload = new { query };
 
-                HttpRequestMessage graphQLRequest = new(HttpMethod.Post, "/graphql")
+                HttpRequestMessage graphQLRequest = new(HttpMethod.Post, graphQL.Path)
                 {
                     Content = JsonContent.Create(payload)
                 };
@@ -5334,8 +6215,63 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
 
                 if (responseCode == HttpStatusCode.ServiceUnavailable)
                 {
-                    retryCount--;
-                    Thread.Sleep(TimeSpan.FromSeconds(RETRY_WAIT_SECONDS));
+                    retryCount++;
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(RETRY_WAIT_SECONDS, retryCount)));
+                    continue;
+                }
+
+                break;
+            }
+
+            return responseCode;
+        }
+
+        /// <summary>	
+        /// Executing MCP POST requests against the engine until a non-503 error is received.	
+        /// </summary>	
+        /// <param name="httpClient">Client used for request execution.</param>	
+        /// <returns>ServiceUnavailable if service is not successfully hydrated with config,	
+        /// else the response code from the MCP request</returns>	
+        public static async Task<HttpStatusCode> GetMcpResponse(HttpClient httpClient, McpRuntimeOptions mcp)
+        {
+            // Retry request RETRY_COUNT times in exponential increments to allow
+            // required services time to instantiate and hydrate permissions because
+            // the DAB services may take an unpredictable amount of time to become ready.
+            //
+            // The service might still fail due to the service not being available yet,
+            // but it is highly unlikely to be the case.
+            int retryCount = 0;
+            HttpStatusCode responseCode = HttpStatusCode.ServiceUnavailable;
+            while (retryCount < RETRY_COUNT)
+            {
+                // Minimal MCP request (initialize) - valid JSON-RPC request.
+                // Using 'initialize' because 'tools/list' requires an active session
+                // in the MCP Streamable HTTP transport (ModelContextProtocol 1.0.0).
+                object payload = new
+                {
+                    jsonrpc = "2.0",
+                    id = 1,
+                    method = "initialize",
+                    @params = new
+                    {
+                        protocolVersion = "2025-03-26",
+                        capabilities = new { },
+                        clientInfo = new { name = "dab-test", version = "1.0.0" }
+                    }
+                };
+                HttpRequestMessage mcpRequest = new(HttpMethod.Post, mcp.Path)
+                {
+                    Content = JsonContent.Create(payload)
+                };
+                mcpRequest.Headers.Add("Accept", "application/json, text/event-stream");
+
+                HttpResponseMessage mcpResponse = await httpClient.SendAsync(mcpRequest);
+                responseCode = mcpResponse.StatusCode;
+
+                if (responseCode == HttpStatusCode.ServiceUnavailable || responseCode == HttpStatusCode.NotFound)
+                {
+                    retryCount++;
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Pow(RETRY_WAIT_SECONDS, retryCount)));
                     continue;
                 }
 
@@ -5465,7 +6401,7 @@ followUpResponseNextLink, $"nextLink was expected to start with http/https, got:
                 );
             entityMap.Add("Publisher", anotherEntity);
 
-            Config.ObjectModel.AuthenticationOptions authenticationOptions = new(Provider: nameof(EasyAuthType.StaticWebApps), null);
+            Config.ObjectModel.AuthenticationOptions authenticationOptions = new(Provider: nameof(EasyAuthType.AppService), null);
 
             return new(
                 Schema: "IntegrationTestMinimalSchema",

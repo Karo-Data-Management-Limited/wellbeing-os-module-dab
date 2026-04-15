@@ -59,8 +59,8 @@ public class TelemetryTests
     {
         File.Delete(CONFIG_WITH_TELEMETRY);
         File.Delete(CONFIG_WITHOUT_TELEMETRY);
-        StartupConfiguration.AppInsightsOptions = new();
-        StartupConfiguration.CustomTelemetryChannel = null;
+        Startup.AppInsightsOptions = new();
+        Startup.CustomTelemetryChannel = null;
     }
 
     /// <summary>
@@ -87,7 +87,7 @@ public class TelemetryTests
         {
             EndpointAddress = "https://localhost/"
         };
-        StartupConfiguration.CustomTelemetryChannel = telemetryChannel;
+        Startup.CustomTelemetryChannel = telemetryChannel;
         using (TestServer server = new(Program.CreateWebHostBuilder(args)))
         {
             await TestRestAndGraphQLRequestsOnServerInNonHostedScenario(server);
@@ -155,7 +155,7 @@ public class TelemetryTests
        };
 
         ITelemetryChannel telemetryChannel = new CustomTelemetryChannel();
-        StartupConfiguration.CustomTelemetryChannel = telemetryChannel;
+        Startup.CustomTelemetryChannel = telemetryChannel;
 
         using (TestServer server = new(Program.CreateWebHostBuilder(args)))
         {
