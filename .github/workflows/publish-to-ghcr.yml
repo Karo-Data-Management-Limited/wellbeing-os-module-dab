@@ -28,9 +28,9 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Install Aspire CLI
-        shell: pwsh
+        shell: bash
         run: |
-          iex "& { $(irm https://aspire.dev/install.ps1) }"
+          curl -sSL https://aspire.dev/install.sh | bash -s -- --verbose
 
       - name: Setup CI config files
         run: |
