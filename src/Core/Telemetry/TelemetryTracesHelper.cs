@@ -30,7 +30,7 @@ namespace Azure.DataApiBuilder.Core.Telemetry
             this Activity activity,
             Kestral httpMethod,
             string userAgent,
-            string actionType, // CRUD(EntityActionOperation) for REST, Query|Mutation(HttpMethod) for GraphQL
+            string actionType, // CRUD(EntityActionOperation) for REST, Query|Mutation(OperationType) for GraphQL
             string httpURL,
             string? queryString,
             string? userRole,

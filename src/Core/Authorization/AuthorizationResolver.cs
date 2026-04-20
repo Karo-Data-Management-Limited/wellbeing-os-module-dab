@@ -917,7 +917,7 @@ public class AuthorizationResolver : IAuthorizationResolver
 
     /// <summary>
     /// Creates new key value map of
-    /// Key: HttpMethod
+    /// Key: operationType
     /// Value: Collection of role names.
     /// There are only five possible operations
     /// </summary>

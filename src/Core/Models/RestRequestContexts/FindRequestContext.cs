@@ -23,7 +23,7 @@ public class FindRequestContext : RestRequestContext
         PrimaryKeyValuePairs = new();
         FieldValuePairsInBody = new();
         IsMany = isList;
-        HttpMethod = EntityActionOperation.Read;
+        OperationType = EntityActionOperation.Read;
     }
 
 }
