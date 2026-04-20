@@ -5,7 +5,7 @@
     "connection-string": "@akv('pg-wellbeing-os')"
   },
   "azure-key-vault": {
-    "endpoint": "https://wellbeing-os-keyvault.vault.azure.net/",
+    "endpoint": "https://kv-karo-wbos-dev.vault.azure.net/",
     "retry-policy": {
       "mode": "exponential",
       "max-count": 5,
