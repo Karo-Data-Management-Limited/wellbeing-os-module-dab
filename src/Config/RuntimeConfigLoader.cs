@@ -114,12 +114,26 @@ public abstract class RuntimeConfigLoader
     }
 
     /// <summary>
-    /// Loads the runtime configuration known to the loader.
+    /// Returns RuntimeConfig (primary synchronous contract used by most callers including CLI and tests).
+    /// </summary>
+    /// <param name="config">Populates deserialized runtime config when successful.</param>
+    /// <param name="replaceEnvVar">Whether to replace environment variable references while deserializing.</param>
+    /// <returns>True if config was loaded, otherwise false.</returns>
+    public abstract bool TryLoadKnownConfig([NotNullWhen(true)] out RuntimeConfig? config, bool replaceEnvVar = false);
+
+    /// <summary>
+    /// Loads the runtime configuration asynchronously. The default implementation wraps the synchronous
+    /// <see cref="TryLoadKnownConfig"/> so most loaders (e.g. file-system) do not need to override it.
+    /// Async-native loaders (e.g. CosmosDB) should override this to avoid sync-over-async.
     /// </summary>
     /// <param name="replaceEnvVar">Whether to replace environment variable references while deserializing.</param>
     /// <param name="cancellationToken">Cancellation token for the load operation.</param>
     /// <returns>The loaded <c>RuntimeConfig</c>, or null if none was loaded.</returns>
-    public abstract Task<RuntimeConfig?> LoadKnownConfigAsync(bool replaceEnvVar = false, CancellationToken cancellationToken = default);
+    public virtual Task<RuntimeConfig?> LoadKnownConfigAsync(bool replaceEnvVar = false, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(TryLoadKnownConfig(out RuntimeConfig? config, replaceEnvVar) ? config : null);
+    }
 
     /// <summary>
     /// Returns the link to the published draft schema.

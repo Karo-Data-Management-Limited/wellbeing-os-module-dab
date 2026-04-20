@@ -188,6 +188,16 @@ public class CosmosDbRuntimeConfigLoader : RuntimeConfigLoader, IDisposable
         }
     }
 
+    /// <summary>
+    /// Synchronous load required by <see cref="RuntimeConfigLoader"/>. Cosmos reads are naturally async,
+    /// so this blocks on <see cref="LoadKnownConfigAsync"/>. Prefer the async path for new callers.
+    /// </summary>
+    public override bool TryLoadKnownConfig([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out RuntimeConfig? config, bool replaceEnvVar = false)
+    {
+        config = LoadKnownConfigAsync(replaceEnvVar).GetAwaiter().GetResult();
+        return config is not null;
+    }
+
     public override string GetPublishedDraftSchemaLink()
     {
         string? assemblyDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
