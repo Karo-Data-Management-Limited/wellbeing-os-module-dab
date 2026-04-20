@@ -3,19 +3,21 @@
 
 using System;
 using System.CommandLine;
-using System.Linq;
+using System.CommandLine.Parsing;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Azure.DataApiBuilder.Config;
-using Azure.DataApiBuilder.Service;
 using Azure.DataApiBuilder.Service.Exceptions;
 using Azure.DataApiBuilder.Service.Telemetry;
+using Azure.DataApiBuilder.Service.Utilities;
 using Microsoft.ApplicationInsights;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.ApplicationInsights;
@@ -26,112 +28,121 @@ using Serilog;
 using Serilog.Core;
 using Serilog.Extensions.Logging;
 
-// Program class for methods and entry point
-public partial class Program
+namespace Azure.DataApiBuilder.Service
 {
-    public static bool IsHttpsRedirectionDisabled { get; private set; }
-
-    /// <summary>
-    /// Application entry point.
-    /// </summary>
-    /// <param name="args">Command line arguments.</param>
-    /// <returns>Exit code: 0 for success, -1 for failure.</returns>
-    public static int Main(string[] args)
+    public class Program
     {
-        if (!ValidateAspNetCoreUrls())
-        {
-            Console.Error.WriteLine("Invalid ASPNETCORE_URLS format. e.g.: ASPNETCORE_URLS=\"http://localhost:5000;https://localhost:5001\"");
-            Environment.ExitCode = -1;
-            return -1;
-        }
+        public static bool IsHttpsRedirectionDisabled { get; private set; }
+        public static DynamicLogLevelProvider LogLevelProvider = new();
 
-        if (!StartEngine(args))
+        public static void Main(string[] args)
         {
-            Environment.ExitCode = -1;
-            return -1;
-        }
+            bool runMcpStdio = McpStdioHelper.ShouldRunMcpStdio(args, out string? mcpRole);
 
-        return 0;
-    }
-
-    public static bool StartEngine(string[] args)
-    {
-        // Unable to use ILogger because this code is invoked before LoggerFactory
-        // is instantiated.
-        Console.WriteLine("Starting the runtime engine...");
-        try
-        {
-            WebApplicationBuilder builder = CreateWebApplicationBuilder(args);
-            WebApplication app = builder.Build();
-            app.ConfigurePipeline();
-            app.Run();
-            return true;
-        }
-        // Catch exception raised by explicit call to IHostApplicationLifetime.StopApplication()
-        catch (TaskCanceledException)
-        {
-            // Do not log the exception here because exceptions raised during startup
-            // are already automatically written to the console.
-            Console.Error.WriteLine("Unable to launch the Data API builder engine.");
-            return false;
-        }
-        // Catch all remaining unhandled exceptions which may be due to server host operation.
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"Unable to launch the runtime due to: {ex}");
-            return false;
-        }
-    }
-
-    public static WebApplicationBuilder CreateWebApplicationBuilder(string[] args)
-    {
-        var builder = WebApplication.CreateBuilder(args);
-        
-        AddConfigurationProviders(builder.Configuration, args);
-        StartupConfiguration.MinimumLogLevel = GetLogLevelFromCommandLineArgs(args, out StartupConfiguration.IsLogLevelOverriddenByCli);
-        DisableHttpsRedirectionIfNeeded(args);
-        
-        builder.ConfigureServices();
-        
-        return builder;
-    }
-
-    // Backward compatibility: Keep CreateHostBuilder for tests
-    public static IHostBuilder CreateHostBuilder(string[] args)
-    {
-        return Host.CreateDefaultBuilder(args)
-            .ConfigureAppConfiguration(builder =>
+            if (runMcpStdio)
             {
-                AddConfigurationProviders(builder, args);
-            })
-            .ConfigureWebHostDefaults(webBuilder =>
-            {
-                StartupConfiguration.MinimumLogLevel = GetLogLevelFromCommandLineArgs(args, out StartupConfiguration.IsLogLevelOverriddenByCli);
-                ILoggerFactory loggerFactory = GetLoggerFactoryForLogLevel(StartupConfiguration.MinimumLogLevel);
-                #pragma warning disable CS0618 // Type or member is obsolete
-                ILogger<Startup> startupLogger = loggerFactory.CreateLogger<Startup>();
-                DisableHttpsRedirectionIfNeeded(args);
-                webBuilder.UseStartup(builder => new Startup(builder.Configuration, startupLogger));
-                #pragma warning restore CS0618
-            });
-    }
+                Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+                Console.InputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            }
 
-    /// <summary>
-    /// Using System.CommandLine Parser to parse args and return
-    /// the correct log level. We save if there is a log level in args through
-    /// the out param. For log level out of range we throw an exception.
-    /// </summary>
-    /// <param name="args">array that may contain log level information.</param>
-    /// <param name="isLogLevelOverridenByCli">sets if log level is found in the args.</param>
-    /// <returns>Appropriate log level.</returns>
-    internal static LogLevel GetLogLevelFromCommandLineArgs(string[] args, out bool isLogLevelOverridenByCli)
+            if (!ValidateAspNetCoreUrls())
+            {
+                Console.Error.WriteLine("Invalid ASPNETCORE_URLS format. e.g.: ASPNETCORE_URLS=\"http://localhost:5000;https://localhost:5001\"");
+                Environment.ExitCode = -1;
+                return;
+            }
+
+            if (!StartEngine(args, runMcpStdio, mcpRole))
+            {
+                Environment.ExitCode = -1;
+            }
+        }
+
+        public static bool StartEngine(string[] args, bool runMcpStdio, string? mcpRole)
         {
-            RootCommand cmd = new("start");
-            Option<LogLevel> logLevelOption = new("--LogLevel");
-            cmd.Add(logLevelOption);
-            ParseResult result = cmd.Parse(args);
-            bool matchedToken = result.Tokens.Count - result.UnmatchedTokens.Count > 1;
-            LogLevel logLevel = matchedToken ? result.GetValue(logLevelOption) : LogLevel.Error;
+            try
+            {
+                IHost host = CreateHostBuilder(args, runMcpStdio, mcpRole).Build();
+
+                if (runMcpStdio)
+                {
+                    return McpStdioHelper.RunMcpStdioHost(host);
+                }
+
+                // Normal web mode
+                host.Run();
+                return true;
+            }
+            // Catch exception raised by explicit call to IHostApplicationLifetime.StopApplication()
+            catch (TaskCanceledException)
+            {
+                // Do not log the exception here because exceptions raised during startup
+                // are already automatically written to the console.
+                Console.Error.WriteLine("Unable to launch the Data API builder engine.");
+                return false;
+            }
+            // Catch all remaining unhandled exceptions which may be due to server host operation.
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Unable to launch the runtime due to: {ex}");
+                return false;
+            }
+        }
+
+        // Compatibility overload used by external callers that do not pass the runMcpStdio flag.
+        public static bool StartEngine(string[] args)
+        {
+            bool runMcpStdio = McpStdioHelper.ShouldRunMcpStdio(args, out string? mcpRole);
+            return StartEngine(args, runMcpStdio, mcpRole: mcpRole);
+        }
+
+        public static IHostBuilder CreateHostBuilder(string[] args, bool runMcpStdio, string? mcpRole)
+        {
+            return Host.CreateDefaultBuilder(args)
+                .ConfigureAppConfiguration(builder =>
+                {
+                    AddConfigurationProviders(builder, args);
+                    if (runMcpStdio)
+                    {
+                        McpStdioHelper.ConfigureMcpStdio(builder, mcpRole);
+                    }
+                })
+                .ConfigureServices((context, services) =>
+                {
+                    services.AddSingleton(LogLevelProvider);
+                })
+                .ConfigureLogging(logging =>
+                {
+                    logging.AddFilter("Microsoft", logLevel => LogLevelProvider.ShouldLog(logLevel));
+                    logging.AddFilter("Microsoft.Hosting.Lifetime", logLevel => LogLevelProvider.ShouldLog(logLevel));
+                })
+                .ConfigureWebHostDefaults(webBuilder =>
+                {
+                    Startup.MinimumLogLevel = GetLogLevelFromCommandLineArgs(args, out Startup.IsLogLevelOverriddenByCli);
+                    LogLevelProvider.SetInitialLogLevel(Startup.MinimumLogLevel, Startup.IsLogLevelOverriddenByCli);
+                    ILoggerFactory loggerFactory = GetLoggerFactoryForLogLevel(Startup.MinimumLogLevel, stdio: runMcpStdio);
+                    ILogger<Startup> startupLogger = loggerFactory.CreateLogger<Startup>();
+                    DisableHttpsRedirectionIfNeeded(args);
+                    webBuilder.UseStartup(builder => new Startup(builder.Configuration, startupLogger));
+                });
+        }
+
+        /// <summary>
+        /// Using System.CommandLine Parser to parse args and return
+        /// the correct log level. We save if there is a log level in args through
+        /// the out param. For log level out of range we throw an exception.
+        /// </summary>
+        /// <param name="args">array that may contain log level information.</param>
+        /// <param name="isLogLevelOverridenByCli">sets if log level is found in the args.</param>
+        /// <returns>Appropriate log level.</returns>
+        private static LogLevel GetLogLevelFromCommandLineArgs(string[] args, out bool isLogLevelOverridenByCli)
+        {
+            Command cmd = new(name: "start");
+            Option<LogLevel> logLevelOption = new(name: "--LogLevel");
+            cmd.AddOption(logLevelOption);
+            ParseResult result = GetParseResult(cmd, args);
+            bool matchedToken = result.Tokens.Count - result.UnmatchedTokens.Count - result.UnparsedTokens.Count > 1;
+            LogLevel logLevel = matchedToken ? result.GetValueForOption(logLevelOption) : LogLevel.Error;
             isLogLevelOverridenByCli = matchedToken;
 
             if (logLevel is > LogLevel.None or < LogLevel.Trace)
@@ -146,6 +157,19 @@ public partial class Program
             return logLevel;
         }
 
+        /// <summary>
+        /// Helper function returns ParseResult for a given command and
+        /// arguments.
+        /// </summary>
+        /// <param name="cmd">The command.</param>
+        /// <param name="args">The arguments.</param>
+        /// <returns>ParsedResult</returns>
+        private static ParseResult GetParseResult(Command cmd, string[] args)
+        {
+            CommandLineConfiguration cmdConfig = new(cmd);
+            Parser parser = new(cmdConfig);
+            return parser.Parse(args);
+        }
 
         /// <summary>
         /// Creates a LoggerFactory and add filter with the given LogLevel.
@@ -154,7 +178,14 @@ public partial class Program
         /// <param name="appTelemetryClient">Telemetry client</param>
         /// <param name="logLevelInitializer">Hot-reloadable log level</param>
         /// <param name="serilogLogger">Core Serilog logging pipeline</param>
-        public static ILoggerFactory GetLoggerFactoryForLogLevel(LogLevel logLevel, TelemetryClient? appTelemetryClient = null, LogLevelInitializer? logLevelInitializer = null, Logger? serilogLogger = null)
+        /// <param name="stdio">Whether the logger is for stdio mode</param>
+        /// <returns>ILoggerFactory</returns>
+        public static ILoggerFactory GetLoggerFactoryForLogLevel(
+            LogLevel logLevel,
+            TelemetryClient? appTelemetryClient = null,
+            LogLevelInitializer? logLevelInitializer = null,
+            Logger? serilogLogger = null,
+            bool stdio = false)
         {
             return LoggerFactory
                 .Create(builder =>
@@ -164,9 +195,9 @@ public partial class Program
                     // "Azure.DataApiBuilder.Service"
                     if (logLevelInitializer is null)
                     {
-                        builder.AddFilter(category: "Microsoft", logLevel);
-                        builder.AddFilter(category: "Azure", logLevel);
-                        builder.AddFilter(category: "Default", logLevel);
+                        builder.AddFilter(category: "Microsoft", logLevel => LogLevelProvider.ShouldLog(logLevel));
+                        builder.AddFilter(category: "Azure", logLevel => LogLevelProvider.ShouldLog(logLevel));
+                        builder.AddFilter(category: "Default", logLevel => LogLevelProvider.ShouldLog(logLevel));
                     }
                     else
                     {
@@ -176,14 +207,14 @@ public partial class Program
                     }
 
                     // For Sending all the ILogger logs to Application Insights
-                    if (StartupConfiguration.AppInsightsOptions.Enabled && !string.IsNullOrWhiteSpace(StartupConfiguration.AppInsightsOptions.ConnectionString))
+                    if (Startup.AppInsightsOptions.Enabled && !string.IsNullOrWhiteSpace(Startup.AppInsightsOptions.ConnectionString))
                     {
                         builder.AddApplicationInsights(configureTelemetryConfiguration: (config) =>
                             {
-                                config.ConnectionString = StartupConfiguration.AppInsightsOptions.ConnectionString;
-                                if (StartupConfiguration.CustomTelemetryChannel is not null)
+                                config.ConnectionString = Startup.AppInsightsOptions.ConnectionString;
+                                if (Startup.CustomTelemetryChannel is not null)
                                 {
-                                    config.TelemetryChannel = StartupConfiguration.CustomTelemetryChannel;
+                                    config.TelemetryChannel = Startup.CustomTelemetryChannel;
                                 }
                             },
                             configureApplicationInsightsLoggerOptions: _ => { }
@@ -199,25 +230,26 @@ public partial class Program
                         }
                     }
 
-                    if (StartupConfiguration.OpenTelemetryOptions.Enabled && !string.IsNullOrWhiteSpace(StartupConfiguration.OpenTelemetryOptions.Endpoint))
+                    if (Startup.OpenTelemetryOptions.Enabled
+                        && Uri.TryCreate(Startup.OpenTelemetryOptions.Endpoint, UriKind.Absolute, out Uri? otlpEndpoint))
                     {
                         builder.AddOpenTelemetry(logging =>
                         {
                             logging.IncludeFormattedMessage = true;
                             logging.IncludeScopes = true;
-                            logging.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(StartupConfiguration.OpenTelemetryOptions.ServiceName!));
+                            logging.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(Startup.OpenTelemetryOptions.ServiceName!));
                             logging.AddOtlpExporter(configure =>
                             {
-                                configure.Endpoint = new Uri(StartupConfiguration.OpenTelemetryOptions.Endpoint);
-                                configure.Headers = StartupConfiguration.OpenTelemetryOptions.Headers;
+                                configure.Endpoint = otlpEndpoint;
+                                configure.Headers = Startup.OpenTelemetryOptions.Headers;
                                 configure.Protocol = OtlpExportProtocol.Grpc;
                             });
                         });
                     }
 
-                    if (StartupConfiguration.IsAzureLogAnalyticsAvailable(StartupConfiguration.AzureLogAnalyticsOptions))
+                    if (Startup.IsAzureLogAnalyticsAvailable(Startup.AzureLogAnalyticsOptions))
                     {
-                        builder.AddProvider(new AzureLogAnalyticsLoggerProvider(StartupConfiguration.CustomLogCollector));
+                        builder.AddProvider(new AzureLogAnalyticsLoggerProvider(Startup.CustomLogCollector));
 
                         if (logLevelInitializer is null)
                         {
@@ -229,7 +261,7 @@ public partial class Program
                         }
                     }
 
-                    if (StartupConfiguration.FileSinkOptions.Enabled && serilogLogger is not null)
+                    if (Startup.FileSinkOptions.Enabled && serilogLogger is not null)
                     {
                         builder.AddSerilog(serilogLogger);
 
@@ -243,7 +275,19 @@ public partial class Program
                         }
                     }
 
-                    builder.AddConsole();
+                    // In stdio mode, route console logs to STDERR to keep STDOUT clean for MCP JSON
+                    if (stdio)
+                    {
+                        builder.ClearProviders();
+                        builder.AddConsole(options =>
+                        {
+                            options.LogToStandardErrorThreshold = LogLevel.Trace;
+                        });
+                    }
+                    else
+                    {
+                        builder.AddConsole();
+                    }
                 });
         }
 
@@ -255,11 +299,11 @@ public partial class Program
         /// <param name="args">array that may contain flag to disable https redirection.</param>
         private static void DisableHttpsRedirectionIfNeeded(string[] args)
         {
-            RootCommand cmd = new("start");
-            Option<string> httpsRedirectFlagOption = new(StartupConfiguration.NO_HTTPS_REDIRECT_FLAG);
-            cmd.Add(httpsRedirectFlagOption);
-            ParseResult result = cmd.Parse(args);
-            if (result.Tokens.Count - result.UnmatchedTokens.Count > 0)
+            Command cmd = new(name: "start");
+            Option<string> httpsRedirectFlagOption = new(name: Startup.NO_HTTPS_REDIRECT_FLAG);
+            cmd.AddOption(httpsRedirectFlagOption);
+            ParseResult result = GetParseResult(cmd, args);
+            if (result.Tokens.Count - result.UnmatchedTokens.Count - result.UnparsedTokens.Count > 0)
             {
                 Console.WriteLine("Redirecting to https is disabled.");
                 IsHttpsRedirectionDisabled = true;
@@ -271,8 +315,10 @@ public partial class Program
 
         // This is used for testing purposes only. The test web server takes in a
         // IWebHostBuilder, instead of a IHostBuilder.
-#pragma warning disable ASPDEPR008 // WebHost is obsolete but still needed for test infrastructure
-#pragma warning disable CS0618 // Startup is obsolete but still needed for test infrastructure
+        // ASPDEPR008: WebHost became an error (not a warning) in .NET 10. These helpers are used
+        // by TestServer for in-process test hosting where IHostBuilder / WebApplicationBuilder
+        // aren't a drop-in replacement, so we suppress the deprecation here rather than rewrite.
+#pragma warning disable ASPDEPR008
         public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
             WebHost
                 .CreateDefaultBuilder(args)
@@ -288,28 +334,27 @@ public partial class Program
         public static IWebHostBuilder CreateWebHostFromInMemoryUpdatableConfBuilder(string[] args) =>
             WebHost.CreateDefaultBuilder(args)
             .UseStartup<Startup>();
-#pragma warning restore CS0618
 #pragma warning restore ASPDEPR008
 
-    /// <summary>
-    /// Adds the various configuration providers.
-    /// </summary>
-    /// <param name="configurationBuilder">The configuration builder.</param>
-    /// <param name="args">The command line arguments.</param>
-    internal static void AddConfigurationProviders(
-        IConfigurationBuilder configurationBuilder,
-        string[] args)
+        /// <summary>
+        /// Adds the various configuration providers.
+        /// </summary>
+        /// <param name="configurationBuilder">The configuration builder.</param>
+        /// <param name="args">The command line arguments.</param>
+        private static void AddConfigurationProviders(
+            IConfigurationBuilder configurationBuilder,
+            string[] args)
         {
             configurationBuilder
                 .AddEnvironmentVariables(prefix: FileSystemRuntimeConfigLoader.ENVIRONMENT_PREFIX)
                 .AddCommandLine(args);
         }
 
-    /// <summary>
-    /// Validates the URLs specified in the ASPNETCORE_URLS environment variable.
-    /// Ensures that each URL is valid and properly formatted.
-    /// </summary>
-    internal static bool ValidateAspNetCoreUrls()
+        /// <summary>
+        /// Validates the URLs specified in the ASPNETCORE_URLS environment variable.
+        /// Ensures that each URL is valid and properly formatted.
+        /// </summary>
+        internal static bool ValidateAspNetCoreUrls()
         {
             if (Environment.GetEnvironmentVariable("ASPNETCORE_URLS") is not { } urls)
             {
@@ -355,25 +400,26 @@ public partial class Program
                 Regex.Replace(url, @"^(https?://)[\+\*]", "$1localhost", RegexOptions.IgnoreCase);
         }
 
-    public static bool CheckSanityOfUrl(string uri)
-    {
-        if (!Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsedUri))
+        public static bool CheckSanityOfUrl(string uri)
         {
-            return false;
-        }
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsedUri))
+            {
+                return false;
+            }
 
-        // Only allow HTTP or HTTPS schemes
-        if (parsedUri.Scheme != Uri.UriSchemeHttp && parsedUri.Scheme != Uri.UriSchemeHttps)
-        {
-            return false;
-        }
+            // Only allow HTTP or HTTPS schemes
+            if (parsedUri.Scheme != Uri.UriSchemeHttp && parsedUri.Scheme != Uri.UriSchemeHttps)
+            {
+                return false;
+            }
 
-        // Disallow empty hostnames
-        if (string.IsNullOrWhiteSpace(parsedUri.Host))
-        {
-            return false;
-        }
+            // Disallow empty hostnames
+            if (string.IsNullOrWhiteSpace(parsedUri.Host))
+            {
+                return false;
+            }
 
-        return true;
+            return true;
+        }
     }
 }

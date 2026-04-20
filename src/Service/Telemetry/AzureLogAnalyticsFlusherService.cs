@@ -20,9 +20,9 @@ public class AzureLogAnalyticsFlusherService : BackgroundService
     private readonly AzureLogAnalyticsOptions _options;
     private readonly ICustomLogCollector _customLogCollector;
     private readonly LogsIngestionClient _logsIngestionClient;
-    private readonly ILogger<AzureLogAnalyticsFlusherService> _logger;
+    private readonly ILogger<Startup> _logger;
 
-    public AzureLogAnalyticsFlusherService(AzureLogAnalyticsOptions options, ICustomLogCollector customLogCollector, LogsIngestionClient logsIngestionClient, ILogger<AzureLogAnalyticsFlusherService> logger)
+    public AzureLogAnalyticsFlusherService(AzureLogAnalyticsOptions options, ICustomLogCollector customLogCollector, LogsIngestionClient logsIngestionClient, ILogger<Startup> logger)
     {
         _options = options;
         _customLogCollector = customLogCollector;

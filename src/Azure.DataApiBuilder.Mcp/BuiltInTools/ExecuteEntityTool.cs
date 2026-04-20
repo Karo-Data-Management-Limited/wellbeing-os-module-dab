@@ -107,11 +107,18 @@ namespace Azure.DataApiBuilder.Mcp.BuiltInTools
                     return McpResponseBuilder.BuildErrorResult(toolName, "InvalidArguments", "Entity is required", logger);
                 }
 
+                // Check entity-level DML tool configuration early (before metadata resolution)
+                if (config.Entities?.TryGetValue(entity, out Entity? entityForCheck) == true &&
+                    entityForCheck.Mcp?.DmlToolEnabled == false)
+                {
+                    return McpErrorHelpers.ToolDisabled(toolName, logger, $"DML tools are disabled for entity '{entity}'.");
+                }
+
                 IMetadataProviderFactory metadataProviderFactory = serviceProvider.GetRequiredService<IMetadataProviderFactory>();
                 IQueryEngineFactory queryEngineFactory = serviceProvider.GetRequiredService<IQueryEngineFactory>();
 
                 // 4) Validate entity exists and is a stored procedure
-                if (!config.Entities.TryGetValue(entity, out Entity? entityConfig))
+                if (config.Entities is null || !config.Entities.TryGetValue(entity, out Entity? entityConfig))
                 {
                     return McpResponseBuilder.BuildErrorResult(toolName, "EntityNotFound", $"Entity '{entity}' not found in configuration.", logger);
                 }
@@ -183,7 +190,7 @@ namespace Azure.DataApiBuilder.Mcp.BuiltInTools
                     entityName: entity,
                     dbo: dbObject,
                     requestPayloadRoot: requestPayloadRoot,
-                    HttpMethod: EntityActionOperation.Execute);
+                    operationType: EntityActionOperation.Execute);
 
                 // First, add user-provided parameters to the context
                 if (requestPayloadRoot != null)

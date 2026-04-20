@@ -22,6 +22,6 @@ public class DeleteRequestContext : RestRequestContext
         PrimaryKeyValuePairs = new();
         FieldValuePairsInBody = new();
         IsMany = isList;
-        HttpMethod = EntityActionOperation.Delete;
+        OperationType = EntityActionOperation.Delete;
     }
 }

@@ -65,21 +65,21 @@ namespace Azure.DataApiBuilder.Core.Resolvers
             // If authorization fails, an exception will be thrown and request execution halts.
             string graphQLType = context.Selection.Field.Type.NamedType().Name;
             string entityName = metadataProvider.GetEntityName(graphQLType);
-            AuthorizeMutation(context, queryArgs, entityName, resolver.HttpMethod);
+            AuthorizeMutation(context, queryArgs, entityName, resolver.OperationType);
 
             JObject result;
-            if (resolver.HttpMethod == EntityActionOperation.Patch)
+            if (resolver.OperationType == EntityActionOperation.Patch)
             {
                 result = await HandlePatchAsync(queryArgs, container);
             }
             else
             {
-                ItemResponse<JObject>? response = resolver.HttpMethod switch
+                ItemResponse<JObject>? response = resolver.OperationType switch
                 {
                     EntityActionOperation.UpdateGraphQL => await HandleUpdateAsync(queryArgs, container),
                     EntityActionOperation.Create => await HandleCreateAsync(queryArgs, container),
                     EntityActionOperation.Delete => await HandleDeleteAsync(queryArgs, container),
-                    _ => throw new NotSupportedException($"unsupported operation type: {resolver.HttpMethod}")
+                    _ => throw new NotSupportedException($"unsupported operation type: {resolver.OperationType}")
                 };
 
                 result = response.Resource;
@@ -479,7 +479,7 @@ namespace Azure.DataApiBuilder.Core.Resolvers
 
             string graphqlMutationName = context.Selection.Field.Name;
             EntityActionOperation mutationOperation =
-                MutationBuilder.DetermineMutationHttpMethodBasedOnInputType(graphqlMutationName);
+                MutationBuilder.DetermineMutationOperationTypeBasedOnInputType(graphqlMutationName);
 
             CosmosOperationMetadata mutation = new(databaseName, containerName, mutationOperation);
             // TODO: we are doing multiple round of serialization/deserialization

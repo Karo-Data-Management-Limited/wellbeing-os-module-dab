@@ -29,11 +29,15 @@ namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration
         /// <param name="runtimeEntities"></param>
         /// <param name="configFileName"></param>
         /// <param name="databaseEnvironment"></param>
+        /// <param name="requestBodyStrict">Optional value for request-body-strict setting. If null, uses default (true).</param>
+        /// <param name="role">Optional role to filter OpenAPI document. If null, returns superset of all roles.</param>
         /// <returns>Generated OpenApiDocument</returns>
         internal static async Task<OpenApiDocument> GenerateOpenApiDocumentAsync(
             RuntimeEntities runtimeEntities,
             string configFileName,
-            string databaseEnvironment)
+            string databaseEnvironment,
+            bool? requestBodyStrict = null,
+            string role = null)
         {
             TestHelper.SetupDatabaseEnvironment(databaseEnvironment);
             FileSystem fileSystem = new();
@@ -44,11 +48,17 @@ namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration
                 .GetResult()
                 ?? throw new InvalidOperationException("Failed to load runtime configuration for OpenAPI bootstrap.");
 
+            // Create Rest options with the specified request-body-strict setting
+            RestRuntimeOptions restOptions = requestBodyStrict.HasValue
+                ? config.Runtime?.Rest with { RequestBodyStrict = requestBodyStrict.Value } ?? new RestRuntimeOptions(RequestBodyStrict: requestBodyStrict.Value)
+                : config.Runtime?.Rest ?? new RestRuntimeOptions();
+
             RuntimeConfig configWithCustomHostMode = config with
             {
                 Runtime = config.Runtime with
                 {
-                    Host = config.Runtime?.Host with { Mode = HostMode.Production }
+                    Host = config.Runtime?.Host with { Mode = HostMode.Development },
+                    Rest = restOptions
                 },
                 Entities = runtimeEntities
             };
@@ -62,7 +72,8 @@ namespace Azure.DataApiBuilder.Service.Tests.OpenApiIntegration
             using TestServer server = new(Program.CreateWebHostBuilder(args));
             using HttpClient client = server.CreateClient();
             {
-                HttpRequestMessage request = new(HttpMethod.Get, "/api/openapi");
+                string requestUrl = role is null ? "/api/openapi" : $"/api/openapi/{role}";
+                HttpRequestMessage request = new(HttpMethod.Get, requestUrl);
 
                 HttpResponseMessage response = await client.SendAsync(request);
                 Stream responseStream = await response.Content.ReadAsStreamAsync();

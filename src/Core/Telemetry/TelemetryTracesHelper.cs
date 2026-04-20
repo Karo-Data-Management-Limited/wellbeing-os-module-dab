@@ -30,7 +30,7 @@ namespace Azure.DataApiBuilder.Core.Telemetry
             this Activity activity,
             Kestral httpMethod,
             string userAgent,
-            string actionType, // CRUD(EntityActionOperation) for REST, Query|Mutation(HttpMethod) for GraphQL
+            string actionType, // CRUD(EntityActionOperation) for REST, Query|Mutation(OperationType) for GraphQL
             string httpURL,
             string? queryString,
             string? userRole,
@@ -108,6 +108,79 @@ namespace Azure.DataApiBuilder.Core.Telemetry
                 activity.SetTag("error.type", ex.GetType().Name);
                 activity.SetTag("error.message", ex.Message);
                 activity.SetTag("status.code", statusCode);
+            }
+        }
+
+        /// <summary>
+        /// Tracks the start of an MCP tool execution activity.
+        /// </summary>
+        /// <param name="activity">The activity instance.</param>
+        /// <param name="toolName">The name of the MCP tool being executed.</param>
+        /// <param name="entityName">The entity name associated with the tool (optional).</param>
+        /// <param name="operation">The operation being performed (e.g., execute, read, create).</param>
+        /// <param name="dbProcedure">The database procedure being executed (optional, schema-qualified if available).</param>
+        public static void TrackMcpToolExecutionStarted(
+            this Activity activity,
+            string toolName,
+            string? entityName = null,
+            string? operation = null,
+            string? dbProcedure = null)
+        {
+            if (activity.IsAllDataRequested)
+            {
+                activity.SetTag("mcp.tool.name", toolName);
+
+                if (!string.IsNullOrEmpty(entityName))
+                {
+                    activity.SetTag("dab.entity", entityName);
+                }
+
+                if (!string.IsNullOrEmpty(operation))
+                {
+                    activity.SetTag("dab.operation", operation);
+                }
+
+                if (!string.IsNullOrEmpty(dbProcedure))
+                {
+                    activity.SetTag("db.procedure", dbProcedure);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Tracks the successful completion of an MCP tool execution.
+        /// </summary>
+        /// <param name="activity">The activity instance.</param>
+        public static void TrackMcpToolExecutionFinished(this Activity activity)
+        {
+            if (activity.IsAllDataRequested)
+            {
+                activity.SetStatus(ActivityStatusCode.Ok);
+            }
+        }
+
+        /// <summary>
+        /// Tracks the completion of an MCP tool execution with an exception.
+        /// </summary>
+        /// <param name="activity">The activity instance.</param>
+        /// <param name="ex">The exception that occurred.</param>
+        /// <param name="errorCode">Optional error code for the failure.</param>
+        public static void TrackMcpToolExecutionFinishedWithException(
+            this Activity activity,
+            Exception ex,
+            string? errorCode = null)
+        {
+            if (activity.IsAllDataRequested)
+            {
+                activity.SetStatus(ActivityStatusCode.Error, ex.Message);
+                activity.AddException(ex);
+                activity.SetTag("error.type", ex.GetType().Name);
+                activity.SetTag("error.message", ex.Message);
+
+                if (!string.IsNullOrEmpty(errorCode))
+                {
+                    activity.SetTag("error.code", errorCode);
+                }
             }
         }
     }

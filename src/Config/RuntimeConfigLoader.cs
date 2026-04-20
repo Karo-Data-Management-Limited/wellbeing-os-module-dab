@@ -13,7 +13,6 @@ using Azure.DataApiBuilder.Config.ObjectModel;
 using Azure.DataApiBuilder.Product;
 using Azure.DataApiBuilder.Service.Exceptions;
 using Microsoft.Data.SqlClient;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
 using Npgsql;
 using static Azure.DataApiBuilder.Config.DabConfigEvents;
@@ -115,12 +114,26 @@ public abstract class RuntimeConfigLoader
     }
 
     /// <summary>
-    /// Loads the runtime configuration known to the loader.
+    /// Returns RuntimeConfig (primary synchronous contract used by most callers including CLI and tests).
+    /// </summary>
+    /// <param name="config">Populates deserialized runtime config when successful.</param>
+    /// <param name="replaceEnvVar">Whether to replace environment variable references while deserializing.</param>
+    /// <returns>True if config was loaded, otherwise false.</returns>
+    public abstract bool TryLoadKnownConfig([NotNullWhen(true)] out RuntimeConfig? config, bool replaceEnvVar = false);
+
+    /// <summary>
+    /// Loads the runtime configuration asynchronously. The default implementation wraps the synchronous
+    /// <see cref="TryLoadKnownConfig"/> so most loaders (e.g. file-system) do not need to override it.
+    /// Async-native loaders (e.g. CosmosDB) should override this to avoid sync-over-async.
     /// </summary>
     /// <param name="replaceEnvVar">Whether to replace environment variable references while deserializing.</param>
     /// <param name="cancellationToken">Cancellation token for the load operation.</param>
     /// <returns>The loaded <c>RuntimeConfig</c>, or null if none was loaded.</returns>
-    public abstract Task<RuntimeConfig?> LoadKnownConfigAsync(bool replaceEnvVar = false, CancellationToken cancellationToken = default);
+    public virtual Task<RuntimeConfig?> LoadKnownConfigAsync(bool replaceEnvVar = false, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(TryLoadKnownConfig(out RuntimeConfig? config, replaceEnvVar) ? config : null);
+    }
 
     /// <summary>
     /// Returns the link to the published draft schema.
@@ -178,16 +191,34 @@ public abstract class RuntimeConfigLoader
     /// </summary>
     /// <param name="json">JSON that represents the config file.</param>
     /// <param name="config">The parsed config, or null if it parsed unsuccessfully.</param>
+    /// <param name="parseError">A clean error message when parsing fails, or null on success.</param>
     /// <param name="replacementSettings">Settings for variable replacement during deserialization. If null, no variable replacement will be performed.</param>
-    /// <param name="logger">logger to log messages</param>
     /// <param name="connectionString">connectionString to add to config if specified</param>
     /// <returns>True if the config was parsed, otherwise false.</returns>
     public static bool TryParseConfig(string json,
         [NotNullWhen(true)] out RuntimeConfig? config,
         DeserializationVariableReplacementSettings? replacementSettings = null,
-        ILogger? logger = null,
         string? connectionString = null)
     {
+        return TryParseConfig(json, out config, out _, replacementSettings, connectionString);
+    }
+
+    /// <summary>
+    /// Parses a JSON string into a <c>RuntimeConfig</c> object for single database scenario.
+    /// </summary>
+    /// <param name="json">JSON that represents the config file.</param>
+    /// <param name="config">The parsed config, or null if it parsed unsuccessfully.</param>
+    /// <param name="parseError">A clean error message when parsing fails, or null on success.</param>
+    /// <param name="replacementSettings">Settings for variable replacement during deserialization. If null, no variable replacement will be performed.</param>
+    /// <param name="connectionString">connectionString to add to config if specified</param>
+    /// <returns>True if the config was parsed, otherwise false.</returns>
+    public static bool TryParseConfig(string json,
+        [NotNullWhen(true)] out RuntimeConfig? config,
+        out string? parseError,
+        DeserializationVariableReplacementSettings? replacementSettings = null,
+        string? connectionString = null)
+    {
+        parseError = null;
         // First pass: extract AzureKeyVault options if AKV replacement is requested
         if (replacementSettings?.DoReplaceAkvVar is true)
         {
@@ -262,18 +293,9 @@ public abstract class RuntimeConfigLoader
             ex is JsonException ||
             ex is DataApiBuilderException)
         {
-            string errorMessage = ex is JsonException ? "Deserialization of the configuration file failed." :
-                "Deserialization of the configuration file failed during a post-processing step.";
-
-            // logger can be null when called from CLI
-            if (logger is null)
-            {
-                Console.Error.WriteLine(errorMessage + $"\n" + $"Message:\n {ex.Message}\n" + $"Stack Trace:\n {ex.StackTrace}");
-            }
-            else
-            {
-                logger.LogError(exception: ex, message: errorMessage);
-            }
+            parseError = ex is DataApiBuilderException
+                ? ex.Message
+                : $"Deserialization of the configuration file failed. {ex.Message}";
 
             config = null;
             return false;
@@ -313,8 +335,13 @@ public abstract class RuntimeConfigLoader
         options.Converters.Add(new EntityActionConverterFactory());
         options.Converters.Add(new DataSourceFilesConverter());
         options.Converters.Add(new EntityCacheOptionsConverterFactory(replacementSettings));
+        options.Converters.Add(new AutoentityConverter(replacementSettings));
+        options.Converters.Add(new AutoentityPatternsConverter(replacementSettings));
+        options.Converters.Add(new AutoentityTemplateConverter(replacementSettings));
+        options.Converters.Add(new EntityMcpOptionsConverterFactory());
         options.Converters.Add(new RuntimeCacheOptionsConverterFactory());
         options.Converters.Add(new RuntimeCacheLevel2OptionsConverterFactory());
+        options.Converters.Add(new CompressionOptionsConverterFactory());
         options.Converters.Add(new MultipleCreateOptionsConverter());
         options.Converters.Add(new MultipleMutationOptionsConverter(options));
         options.Converters.Add(new DataSourceConverterFactory(replacementSettings));
@@ -322,6 +349,7 @@ public abstract class RuntimeConfigLoader
         options.Converters.Add(new AKVRetryPolicyOptionsConverterFactory(replacementSettings));
         options.Converters.Add(new AzureLogAnalyticsOptionsConverterFactory(replacementSettings));
         options.Converters.Add(new AzureLogAnalyticsAuthOptionsConverter(replacementSettings));
+        options.Converters.Add(new BoolJsonConverter());
         options.Converters.Add(new FileSinkConverter(replacementSettings));
 
         // Add AzureKeyVaultOptionsConverterFactory to ensure AKV config is deserialized properly
@@ -529,5 +557,10 @@ public abstract class RuntimeConfigLoader
 
             RuntimeConfig = runtimeConfigCopy;
         }
+    }
+
+    public void EditRuntimeConfig(RuntimeConfig newRuntimeConfig)
+    {
+        RuntimeConfig = newRuntimeConfig;
     }
 }

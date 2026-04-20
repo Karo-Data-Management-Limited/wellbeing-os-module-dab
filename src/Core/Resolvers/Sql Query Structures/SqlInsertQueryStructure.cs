@@ -68,7 +68,7 @@ namespace Azure.DataApiBuilder.Core.Resolvers
               gQLFilterParser: gQLFilterParser,
               entityName: entityName,
               httpContext: httpContext,
-              HttpMethod: EntityActionOperation.Create,
+              operationType: EntityActionOperation.Create,
               isLinkingEntity: isLinkingEntity)
         {
             InsertColumns = new();
