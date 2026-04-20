@@ -315,6 +315,10 @@ namespace Azure.DataApiBuilder.Service
 
         // This is used for testing purposes only. The test web server takes in a
         // IWebHostBuilder, instead of a IHostBuilder.
+        // ASPDEPR008: WebHost became an error (not a warning) in .NET 10. These helpers are used
+        // by TestServer for in-process test hosting where IHostBuilder / WebApplicationBuilder
+        // aren't a drop-in replacement, so we suppress the deprecation here rather than rewrite.
+#pragma warning disable ASPDEPR008
         public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
             WebHost
                 .CreateDefaultBuilder(args)
@@ -330,6 +334,7 @@ namespace Azure.DataApiBuilder.Service
         public static IWebHostBuilder CreateWebHostFromInMemoryUpdatableConfBuilder(string[] args) =>
             WebHost.CreateDefaultBuilder(args)
             .UseStartup<Startup>();
+#pragma warning restore ASPDEPR008
 
         /// <summary>
         /// Adds the various configuration providers.
